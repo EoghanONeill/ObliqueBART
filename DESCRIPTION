@@ -1,13 +1,25 @@
 Package: ObliqueBART
-Title: What the Package Does (One Line, Title Case)
+Title: Bayesian Additive Regression Trees with Oblique Splits
 Version: 0.0.0.9000
 Authors@R: 
-    person("First", "Last", , "first.last@example.com", role = c("aut", "cre"),
-           comment = c(ORCID = "YOUR-ORCID-ID"))
-Description: What the package does (one paragraph).
+    c(person("Eoghan", "O'Neill", , "oneill.eoghan.1@gmail.com", role = c("aut", "cre"),
+           comment = c(ORCID = "0000-0002-1274-4248")),
+    person('Estevão', 'B. Prado', email = 'estevao.prado@hotmail.com', role=c('aut'), comment = c(ORCID = "0000-0003-2320-085X")))
+Description: Bayesian Additive Regression Trees with Oblique Splits
 License: GPL (>= 3)
 Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
 RoxygenNote: 7.2.0
 URL: https://github.com/EoghanONeill/ObliqueBART
 BugReports: https://github.com/EoghanONeill/ObliqueBART/issues
+LinkingTo: 
+    Rcpp,
+    RcppArmadillo
+Imports: 
+    Rcpp, 
+    MASS, 
+    mvtnorm, 
+    statmod, 
+    stats, 
+    MCMCpack, 
+    truncnorm

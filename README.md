@@ -11,12 +11,13 @@ The goal of ObliqueBART is to provide an implementation of Bayesian Additrive Re
 You can install the development version of ObliqueBART like so:
 
 ``` r
-# FILL THIS IN! HOW CAN PEOPLE INSTALL YOUR DEV PACKAGE?
+library(devtools)
+install_github("EoghanONeill/ObliqueBART")
 ```
 
 ## Example
 
-This is a basic example which shows you how to solve a common problem:
+This is a basic example:
 
 ``` r
 library(ObliqueBART)
