@@ -31,22 +31,113 @@ fill_tree_details = function(curr_tree, X) {
     curr_parent = as.numeric(tree_matrix[i,'parent'])
 
     # Find the split variable and value of the parent
-    split_var = as.numeric(tree_matrix[curr_parent,'split_variable'])
+    # split_var = as.numeric(tree_matrix[curr_parent,'split_variable'])
+    split_coefs = as.numeric(tree_matrix[curr_parent,8:(ncol(tree_matrix))])
     split_val = as.numeric(tree_matrix[curr_parent, 'split_value'])
+
+    # print("split_val= ")
+    # print(split_val)
+
+    if(is.na(split_val)){
+      stop("split_val == NA")
+    }
+    if(any(is.na(split_coefs))){
+      stop("split_coefs contains NA")
+    }
 
     # Find whether it's a left or right terminal node
     left_or_right = ifelse(tree_matrix[curr_parent,'child_left'] == i,
                            'left', 'right')
+
     if(left_or_right == 'left') {
       # If left use less than condition
-      new_tree_matrix[i,'node_size'] = sum(X[node_indices == curr_parent,split_var] < split_val)
-      node_indices[node_indices == curr_parent][X[node_indices == curr_parent,split_var] < split_val] = i
+      # new_tree_matrix[i,'node_size'] = sum(X[node_indices == curr_parent,split_var] < split_val)
+      # node_indices[node_indices == curr_parent][X[node_indices == curr_parent,split_var] < split_val] = i
+
+      # print("ncol(X[node_indices == curr_parent,]")
+      # print(ncol(X[node_indices == curr_parent,]))
+      # print("split_coefs = " )
+      # print(split_coefs)
+
+      new_tree_matrix[i,'node_size'] <- sum( ( X[node_indices == curr_parent,] %*% split_coefs )   < split_val )
+
+      # print("new_tree_matrix[i,'node_size'] = ")
+      # print(new_tree_matrix[i,'node_size'])
+
+      node_indices[node_indices == curr_parent][ (X[node_indices == curr_parent,] %*% split_coefs ) < split_val ] <-  i
+
+
+
     } else {
       # If right use greater than condition
-      new_tree_matrix[i,'node_size'] = sum(X[node_indices == curr_parent,split_var] >= split_val)
-      node_indices[node_indices == curr_parent][X[node_indices == curr_parent,split_var] >= split_val] = i
+      # new_tree_matrix[i,'node_size'] = sum(X[node_indices == curr_parent,split_var] >= split_val)
+      # node_indices[node_indices == curr_parent][X[node_indices == curr_parent,split_var] >= split_val] = i
+
+
+      # # replaced >= with ! < because values equal or very close to equal to split vlaue not allocated to a node.
+      # temp_vals <- X[node_indices == curr_parent,] %*% split_coefs
+      # new_tree_matrix[i,'node_size'] <- sum(  !(( temp_vals ) < split_val)  |(temp_vals == split_val) )
+      #
+      # # print("new_tree_matrix[i,'node_size'] = ")
+      # # print(new_tree_matrix[i,'node_size'])
+      #
+      # node_indices[node_indices == curr_parent][  !( ( temp_vals ) <  split_val ) |(temp_vals == split_val) ] <- i
+
+      # right node always after left, so if not filled in as the left node, remaining indices are all the right node
+      new_tree_matrix[i,'node_size'] <- sum(node_indices == curr_parent)
+      node_indices[node_indices == curr_parent] <- i
+
+
+
     }
   } # End of loop through table
+
+  # print("new_tree_matrix = ")
+  # print(new_tree_matrix)
+  # print("new_tree_matrix$terminal = ")
+  # print(new_tree_matrix$terminal)
+
+  # if(any( sort(unique(node_indices)) != which(new_tree_matrix[,"terminal"] == 1))){
+  #
+  #   indnoteq <- which( sort(unique(node_indices)) != which(new_tree_matrix[,"terminal"] == 1))
+  #   missing_inds <- which(node_indices == indnoteq)
+  #
+  #
+  #   print("node_indices = ")
+  #   print(node_indices)
+  #
+  #   print("curr_parent = ")
+  #   print(curr_parent)
+  #
+  #   print("new_tree_matrix = ")
+  #   print(new_tree_matrix)
+  #   print("  sort(unique(node_indices)) = ")
+  #   print(  sort(unique(node_indices)) )
+  #
+  #   print("X[node_indices == curr_parent,] %*% split_coefs    = ")
+  #   print(X[node_indices == curr_parent,] %*% split_coefs )
+  #
+  #   print("split_val = ")
+  #   print(split_val)
+  #
+  #   print("!( X[node_indices == curr_parent,] %*% split_coefs   < split_val )  ")
+  #   print(!(X[node_indices == curr_parent,] %*% split_coefs   < split_val ))
+  #
+  #   print("X[node_indices == curr_parent,] %*% split_coefs   < split_val  ")
+  #   print(X[node_indices == curr_parent,] %*% split_coefs   < split_val )
+  #
+  #
+  #   print("X[node_indices == curr_parent,] %*% split_coefs   - split_val  ")
+  #   print(X[node_indices == curr_parent,] %*% split_coefs   - split_val )
+  #
+  #   # print("X[missing_inds,] %*% split_coefs )   = ")
+  #   # print(X[missing_inds,] %*% split_coefs )
+  #
+  #
+  #
+  #   stop("any( sort(unique(node_indices)) != which(new_tree_matrix[,1] ==1))")
+  # }
+
 
   return(list(tree_matrix = new_tree_matrix,
               node_indices = node_indices))
@@ -120,15 +211,15 @@ update_s = function(var_count, p, alpha_s){
   return(s_)
 }
 
-get_number_distinct_cov <- function(tree){
-
-  # Select the rows that correspond to internal nodes
-  which_terminal = which(tree$tree_matrix[,'terminal'] == 0)
-  # Get the covariates that are used to define the splitting rules
-  num_distinct_cov = length(unique(tree$tree_matrix[which_terminal,'split_variable']))
-
-  return(num_distinct_cov)
-}
+# get_number_distinct_cov <- function(tree){
+#
+#   # Select the rows that correspond to internal nodes
+#   which_terminal = which(tree$tree_matrix[,'terminal'] == 0)
+#   # Get the covariates that are used to define the splitting rules
+#   num_distinct_cov = length(unique(tree$tree_matrix[which_terminal,'split_variable']))
+#
+#   return(num_distinct_cov)
+# }
 
 sample_move = function(curr_tree, i, nburn){
 

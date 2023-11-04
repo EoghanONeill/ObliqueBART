@@ -29,9 +29,40 @@ tree_full_conditional = function(tree, R, sigma2, sigma2_mu) {
   sumRsq_j = aggregate(R, by = list(tree$node_indices), function(x) sum(x^2))[,2]
   S_j = aggregate(R, by = list(tree$node_indices), sum)[,2]
 
+
+  # print(" tree$node_indices = ")
+  # print(tree$node_indices)
+  #
+  # print("unique(tree$node_indices) = ")
+  # print(unique(tree$node_indices))
+  #
+  # print("nj = ")
+  # print(nj)
+  #
+  # print("S_j = ")
+  # print(S_j)
+
+
+  if(length(nj) != length(S_j)){
+    print("tree = ")
+    print(tree)
+    stop("length(nj) != length(S_j)")
+  }
+
+  # print("sigma2 = ")
+  # print(sigma2)
+  #
+  # print("sumRsq_j = ")
+  # print(sumRsq_j)
+  #
+  # print("R = ")
+  # print(R)
+
+
   # Now calculate the log posterior
   log_post = 0.5 * ( sum(log( sigma2 / (nj*sigma2_mu + sigma2))) +
               sum( (sigma2_mu* S_j^2) / (sigma2 * (nj*sigma2_mu + sigma2))))
+
   return(log_post)
 }
 
@@ -50,6 +81,28 @@ simulate_mu = function(tree, R, sigma2, sigma2_mu) {
 
   # Get sum of residuals in each terminal node
   sumR = aggregate(R, by = list(tree$node_indices), sum)[,2]
+
+
+  # print(" tree$node_indices = ")
+  # print(tree$node_indices)
+  #
+  # print("nj = ")
+  # print(nj)
+  #
+  # print("sumR = ")
+  # print(sumR)
+
+  if(length(nj) != length(sumR)){
+    print("tree = ")
+    print(tree)
+    stop("length(nj) != length(sumR)")
+  }
+
+  # print("sigma2 = ")
+  # print(sigma2)
+  #
+  # print("sigma2_mu = ")
+  # print(sigma2_mu)
 
   # Now calculate mu values
   mu = rnorm(length(nj) ,
@@ -145,3 +198,54 @@ update_z = function(y, prediction){
 #   return(log_prior_num_cov)
 #
 # }
+
+
+  #The get w function determine the number of second generation internal nodes in a given tree, input: tree
+  get_w = function(tree){
+    if(is.null(tree) | nrow(tree$tree_matrix) == 1) { # In case the tree is empty or a stump
+      B = 0
+    } else {
+      indeces = which(tree$tree_matrix[,'terminal'] == '1') #determine which indexes have a terminal node label
+      # determine the parent for each terminal node and sum the number of duplicated parents
+      B = as.numeric(sum(duplicated(tree$tree_matrix[indeces,'parent'])))}
+    return(B)
+  }
+
+  # The get number of terminals function calculates the number of terminal nodes, input: tree
+  get_nterminal = function(tree){
+    if(is.null(tree)) { # In case the tree is empty
+      L = 0
+    } else {
+      indeces = which(tree$tree_matrix[,'terminal'] == '1')  # determine which indexes have a terminal node label
+      L = as.numeric(length(indeces))} # take the length of these indexes, to determine the number of terminal nodes/leaves
+    return(L)
+  }
+
+  # The ratio grow function calculates ratio of transition probabilities of the grow step
+  # This function is in accordance with the soft BART paper, input: current tree, proposed/new tree
+  ratio_grow = function(curr_tree,new_tree){
+    grow_ratio = get_nterminal(curr_tree)/(get_w(new_tree)+1)
+    return(grow_ratio)
+  }
+
+  # The ratio prune function calculates ratio of transition probabilities of the prune step
+  # This function is in accordance with the soft BART paper, input: current tree, proposed/new tree
+  ratio_prune = function(curr_tree,new_tree){
+    prune_ratio = get_w(new_tree)/(get_nterminal(curr_tree)-1)
+    return(prune_ratio)
+  }
+
+  # The alpha MH function calculates the alpha of the Metropolis-Hastings step based on the type of transformation
+  # input: transformation type, current tree, proposed/new tree and the respective likelihoods
+  alpha_mh = function(l_new,l_old, curr_trees,new_trees, type){
+    if(type == 'grow'){
+      a = exp(l_new - l_old)*ratio_grow(curr_trees, new_trees)
+
+    } else if(type == 'prune'){
+
+      a = exp(l_new - l_old)*ratio_prune(curr_trees, new_trees)
+    } else{
+      a = exp(l_new - l_old)
+    }
+    return(a)
+  }

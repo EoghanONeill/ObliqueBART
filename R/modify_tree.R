@@ -39,7 +39,8 @@ create_stump = function(num_trees,
     names(all_trees[[j]]) = c('tree_matrix',
                               'node_indices')
     # Create the two elements: first is a matrix
-    all_trees[[j]][[1]] = matrix(NA, ncol = 8, nrow = 1)
+    # all_trees[[j]][[1]] = matrix(NA, ncol = 8, nrow = 1)
+    all_trees[[j]][[1]] = matrix(NA, ncol = 7 + ncol(x), nrow = 1)
 
     # Second is the assignment to node indices
     all_trees[[j]][[2]] = rep(1, length(y))
@@ -49,13 +50,16 @@ create_stump = function(num_trees,
                                       'child_left',
                                       'child_right',
                                       'parent',
-                                      'split_variable',
+                                      # 'split_variable',
                                       'split_value',
                                       'mu',
-                                      'node_size')
+                                      'node_size',
+                                      paste0("coef_", 1:ncol(x)))
 
     # Set values for stump
-    all_trees[[j]][[1]][1,] = c(1, NA, NA, NA, NA, NA, 0 , length(y))
+    all_trees[[j]][[1]][1,] = c(1, NA, NA, NA, #NA,
+                                NA, 0 , length(y),
+                                rep(NA, ncol(x)))
 
   } # End of loop through trees
 
@@ -73,14 +77,21 @@ update_tree = function(y, # Target variable
                                 'swap'),  # Swap existing tree - swap splitting rules for two pairs of terminal nodes
                        curr_tree,         # The current set of trees (not required if type is stump)
                        node_min_size,     # The minimum size of a node to grow
-                       s)                 # probability vector to be used during the growing process
+                       s,                 # probability vector to be used during the growing process
+                       coef_prior,        # Prior distribution for splitting coefficients
+                       coef_hyperprior,   # hyperprior for splitting coefficients
+                       hyp_par_list,       # list of hyperparameters for splitting coefficients
+                       threshold_prior    # splitting value  prior
+                       )
   {
 
   # Call the appropriate function to get the new tree
   new_tree = switch(type,
-                    grow = grow_tree(X, y, curr_tree, node_min_size, s),
+                    grow = grow_tree(X, y, curr_tree, node_min_size, s,
+                                     coef_prior, coef_hyperprior, hyp_par_list, threshold_prior),
                     prune = prune_tree(X, y, curr_tree),
-                    change = change_tree(X, y, curr_tree, node_min_size),
+                    change = change_tree(X, y, curr_tree, node_min_size,
+                                         coef_prior, coef_hyperprior, hyp_par_list, threshold_prior),
                     swap = swap_tree(X, y, curr_tree, node_min_size))
 
   # Return the new tree
@@ -90,7 +101,11 @@ update_tree = function(y, # Target variable
 
 # Grow_tree function ------------------------------------------------------
 
-grow_tree = function(X, y, curr_tree, node_min_size, s) {
+grow_tree = function(X, y, curr_tree, node_min_size, s,
+                     coef_prior,
+                     coef_hyperprior,
+                     hyp_par_list,
+                     threshold_prior) {
 
   # Set up holder for new tree
   new_tree = curr_tree
@@ -113,36 +128,108 @@ grow_tree = function(X, y, curr_tree, node_min_size, s) {
 
     # Add two extra rows to the tree in question
     new_tree$tree_matrix = rbind(new_tree$tree_matrix,
-                                 c(1, NA, NA, NA, NA, NA, NA, NA), # Make sure they're both terminal
-                                 c(1, NA, NA, NA, NA, NA, NA, NA))
+                                 c(1, NA, NA, NA, # NA,
+                                   NA, NA, NA,
+                                   rep(NA,ncol(X))), # Make sure they're both terminal
+                                 c(1, NA, NA, NA, # NA,
+                                   NA, NA, NA,
+                                   rep(NA,ncol(X))))
 
     # Choose a random terminal node to split
     node_to_split = sample(terminal_nodes, 1,
                            prob = as.integer(terminal_node_size > node_min_size)) # Choose which node to split, set prob to zero for any nodes that are too small
 
-    # Choose a split variable uniformly from all columns (the first one is the intercept)
-    split_variable = sample(1:ncol(X), 1, prob = s)
+    # # Choose a split variable uniformly from all columns (the first one is the intercept)
+    # split_variable = sample(1:ncol(X), 1, prob = s)
 
-    # Alternatively follow BARTMachine and choose a split value using sample on the internal values of the available
-    available_values = sort(unique(X[new_tree$node_indices == node_to_split,
-                                     split_variable]))
+    # PROPOSE COEFFICIENTS FOR OBLIQUE SPLIT
+    # THIS DEPENDS ON THE PRIOR
+    split_coefs <- rep(NA, ncol(X))
 
-    if(length(available_values) == 1){
-      split_value = available_values[1]
-    } else if (length(available_values) == 2){
-      split_value = available_values[2]
-    }  else {
-      # split_value = sample(available_values[-c(1,length(available_values))], 1)
-      split_value = resample(available_values[-c(1,length(available_values))])
+    # can vectorize this to speed up
+    if(coef_prior == "univariate_normal"){
+      if( coef_hyperprior == "none"){
+        for(j in 1:ncol(X)){
+          split_coefs[j] <- rnorm( n = 1,
+                                   mean = 0,
+                                   sd =  sqrt(hyp_par_list$sigma2_beta_vec[j]))
+        }
+      }
+      if(coef_prior == "univariate_normal"){
+        for(j in 1:ncol(X)){
+          split_coefs[j] <- rnorm( n = 1,
+                                   mean = hyp_par_list$beta_bar_vec[j],
+                                   sd =  sqrt(hyp_par_list$sigma2_beta_vec[j]))
+        }
+
+      }
+
     }
 
+
+    if(any(is.na(split_coefs))){
+      stop("NA split_coefs values")
+    }
+
+
+
+    # # Alternatively follow BARTMachine and choose a split value using sample on the internal values of the available
+    # available_values = sort(unique(X[new_tree$node_indices == node_to_split,
+    #                                  split_variable]))
+    #
+    # if(length(available_values) == 1){
+    #   split_value = available_values[1]
+    # } else if (length(available_values) == 2){
+    #   split_value = available_values[2]
+    # }  else {
+    #   # split_value = sample(available_values[-c(1,length(available_values))], 1)
+    #   split_value = resample(available_values[-c(1,length(available_values))])
+    # }
+
+
+
+    if(threshold_prior != "continuous_minus_plus_1"){
+      # calculate all linear combination values in the relevant node
+      lincomb_values <- unique(X[new_tree$node_indices == node_to_split, ] %*% split_coefs)
+    }
+
+    if(threshold_prior == "discrete_uniform"){
+      # Alternatively follow BARTMachine and choose a split value using sample on the internal values of the available
+      available_values = sort(lincomb_values)
+
+      if(length(available_values) == 1){
+        split_value = available_values[1]
+      } else if (length(available_values) == 2){
+        split_value = available_values[2]
+      }  else {
+        # split_value = sample(available_values[-c(1,length(available_values))], 1)
+        # split_value = resample(available_values[-c(1,length(available_values))])
+        split_value = sample(x = available_values[2:(length(available_values)-1)],size = 1)
+
+      }
+    }
+
+    if(threshold_prior == "continuous_min_max"){
+      tempmin <- min(lincomb_values)
+      tempmax <- max(lincomb_values)
+      split_value <- runif(n = 1, min = tempmin, max = tempmax)
+    }
+
+
+    if(threshold_prior == "continuous_minus_plus_1"){
+      split_value <- runif(n = 1, min = -1, max = 1)
+    }
+
+
     curr_parent = new_tree$tree_matrix[node_to_split, 'parent'] # Make sure to keep the current parent in there. Will be NA if at the root node
-    new_tree$tree_matrix[node_to_split,1:6] = c(0, # Now not temrinal
+    new_tree$tree_matrix[node_to_split,1:5] = c(0, # Now not temrinal
                                                 nrow(new_tree$tree_matrix) - 1, # child_left is penultimate row
                                                 nrow(new_tree$tree_matrix),  # child_right is penultimate row
                                                 curr_parent,
-                                                split_variable,
+                                                # split_variable,
                                                 split_value)
+
+    new_tree$tree_matrix[node_to_split,8:ncol(new_tree$tree_matrix)] <- split_coefs
 
     #  Fill in the parents of these two nodes
     new_tree$tree_matrix[nrow(new_tree$tree_matrix),'parent'] = node_to_split
@@ -152,7 +239,7 @@ grow_tree = function(X, y, curr_tree, node_min_size, s) {
     new_tree = fill_tree_details(new_tree, X)
 
     # Store the covariate name to use it to update the Dirichlet prior of Linero (2016).
-    new_tree$var = split_variable
+    # new_tree$var = split_variable
 
     # Check for bad tree
     if(any(as.numeric(new_tree$tree_matrix[,'node_size']) <= node_min_size)) {
@@ -162,9 +249,9 @@ grow_tree = function(X, y, curr_tree, node_min_size, s) {
     }
 
     if(count_bad_trees == max_bad_trees) {
-      curr_tree$var = 0
+      # curr_tree$var = 0
       return(curr_tree)
-      }
+    }
   }
   # Return new_tree
   return(new_tree)
@@ -179,7 +266,7 @@ prune_tree = function(X, y, curr_tree) {
   new_tree = curr_tree
 
   if(nrow(new_tree$tree_matrix) == 1) { # No point in pruning a stump!
-    new_tree$var = 0
+    # new_tree$var = 0
     return(new_tree)
   }
 
@@ -196,7 +283,7 @@ prune_tree = function(X, y, curr_tree) {
 
     # Find the parent of this terminal node
     parent_pick = as.numeric(new_tree$tree_matrix[node_to_prune, 'parent'])
-    var_pruned_nodes = as.numeric(new_tree$tree_matrix[parent_pick, 'split_variable'])
+    # var_pruned_nodes = as.numeric(new_tree$tree_matrix[parent_pick, 'split_variable'])
 
     # Get the two children of this parent
     child_left = as.numeric(new_tree$tree_matrix[parent_pick, 'child_left'])
@@ -220,12 +307,16 @@ prune_tree = function(X, y, curr_tree) {
   new_tree$tree_matrix[parent_pick,c('terminal',
                                      'child_left',
                                      'child_right',
-                                     'split_variable',
-                                     'split_value')] = c(1, NA, NA, NA, NA)
+                                     # 'split_variable',
+                                     'split_value')] = c(1, NA, NA, #NA,
+                                                         NA)
+
+  new_tree$tree_matrix[parent_pick,8:ncol(new_tree$tree_matrix)] = rep(NA, ncol(X))
+
 
   # If we're back to a stump no need to call fill_tree_details
   if(nrow(new_tree$tree_matrix) == 1) {
-    new_tree$var = var_pruned_nodes
+    # new_tree$var = var_pruned_nodes
     new_tree$node_indices = rep(1, length(y))
   } else {
     # If we've removed some nodes from the middle we need to re-number all the child_left and child_right values - the parent values will still be correct
@@ -249,7 +340,7 @@ prune_tree = function(X, y, curr_tree) {
     new_tree = fill_tree_details(new_tree, X)
 
     # Store the covariate name that was used in the splitting rule of the terminal nodes that were just pruned
-    new_tree$var = var_pruned_nodes
+    # new_tree$var = var_pruned_nodes
 
   }
 
@@ -260,13 +351,17 @@ prune_tree = function(X, y, curr_tree) {
 
 # change_tree function ----------------------------------------------------
 
-change_tree = function(X, y, curr_tree, node_min_size) {
+change_tree = function(X, y, curr_tree, node_min_size,
+                       coef_prior,
+                       coef_hyperprior,
+                       hyp_par_list,
+                       threshold_prior) {
 
   # Change a node means change out the split value and split variable of an internal node. Need to make sure that this does now produce a bad tree (i.e. zero terminal nodes)
 
   # If current tree is a stump nothing to change
   if(nrow(curr_tree$tree_matrix) == 1) {
-    curr_tree$var = c(0, 0)
+    # curr_tree$var = c(0, 0)
     return(curr_tree)
   }
 
@@ -290,7 +385,7 @@ change_tree = function(X, y, curr_tree, node_min_size) {
     node_to_change = sample(internal_nodes, 1)
 
     # Get the covariate that will be changed
-    var_changed_node = as.numeric(new_tree$tree_matrix[node_to_change, 'split_variable'])
+    # var_changed_node = as.numeric(new_tree$tree_matrix[node_to_change, 'split_variable'])
 
     # Use the get_children function to get all the children of this node
     all_children = get_children(new_tree$tree_matrix, node_to_change)
@@ -301,34 +396,107 @@ change_tree = function(X, y, curr_tree, node_min_size) {
     # Create new split variable and value based on ignorance
     # then check this doesn't give a bad tree
 
-    available_values = NULL
+    # available_values = NULL
+    #
+    # new_split_variable = sample(1:ncol(X), 1)
+    #
+    # available_values = sort(unique(X[use_node_indices,
+    #                                  new_split_variable]))
+    #
+    # if (length(available_values) == 1){
+    #   new_split_value = available_values[1]
+    #   # new_tree$var = c(var_changed_node, new_split_variable)
+    # } else if (length(available_values) == 2){
+    #   new_split_value = available_values[2]
+    #   # new_tree$var = c(var_changed_node, new_split_variable)
+    # } else {
+    #   # new_split_value = sample(available_values[-c(1,length(available_values))], 1)
+    #   new_split_value = resample(available_values[-c(1,length(available_values))])
+    # }
 
-    new_split_variable = sample(1:ncol(X), 1)
 
-    available_values = sort(unique(X[use_node_indices,
-                                     new_split_variable]))
 
-    if (length(available_values) == 1){
-      new_split_value = available_values[1]
-      new_tree$var = c(var_changed_node, new_split_variable)
-    } else if (length(available_values) == 2){
-      new_split_value = available_values[2]
-      new_tree$var = c(var_changed_node, new_split_variable)
-    } else {
-      # new_split_value = sample(available_values[-c(1,length(available_values))], 1)
-      new_split_value = resample(available_values[-c(1,length(available_values))])
+    # PROPOSE COEFFICIENTS FOR OBLIQUE SPLIT
+    # THIS DEPENDS ON THE PRIOR
+    new_split_coefs <- rep(NA, ncol(X))
+
+    # can vectorize this to speed up
+    if(coef_prior == "univariate_normal"){
+      if(coef_hyperprior == "none"){
+        for(j in 1:ncol(X)){
+          new_split_coefs[j] <- rnorm( n = 1,
+                                   mean = 0,
+                                   sd =  sqrt(hyp_par_list$sigma2_beta_vec[j]))
+        }
+      }
+      if(coef_prior == "univariate_normal"){
+        for(j in 1:ncol(X)){
+          new_split_coefs[j] <- rnorm( n = 1,
+                                   mean = hyp_par_list$beta_bar_vec[j],
+                                   sd =  sqrt(hyp_par_list$sigma2_beta_vec[j]))
+        }
+
+      }
+
     }
+
+    if(any(is.na(new_split_coefs))){
+      stop("NA in new_split_coefs")
+    }
+
+    if(threshold_prior != "continuous_minus_plus_1"){
+      # calculate all linear combination values in the relevant node
+      lincomb_values <- unique(X[ use_node_indices, ] %*% new_split_coefs)
+    }
+
+    if(threshold_prior == "discrete_uniform"){
+      # Alternatively follow BARTMachine and choose a split value using sample on the internal values of the available
+      available_values = sort(lincomb_values)
+
+      if(length(available_values) == 1){
+        new_split_value = available_values[1]
+      } else if (length(available_values) == 2){
+        new_split_value = available_values[2]
+      }  else {
+        # new_split_value = sample(available_values[-c(1,length(available_values))], 1)
+        # new_split_value = resample(available_values[-c(1,length(available_values))])
+        new_split_value = sample(x = available_values[2:(length(available_values)-1)],size = 1)
+
+      }
+    }
+
+    if(threshold_prior == "continuous_min_max"){
+      tempmin <- min(lincomb_values)
+      tempmax <- max(lincomb_values)
+      new_split_value <- runif(n = 1, min = tempmin, max = tempmax)
+    }
+
+
+    if(threshold_prior == "continuous_minus_plus_1"){
+      new_split_value <- runif(n = 1, min = -1, max = 1)
+    }
+
+
+
+
+
     # Update the tree details
+    # new_tree$tree_matrix[node_to_change,
+    #                      c(#'split_variable',
+    #                        'split_value')] = c(#new_split_variable,
+    #                                            new_split_value)
+
     new_tree$tree_matrix[node_to_change,
-                         c('split_variable',
-                           'split_value')] = c(new_split_variable,
-                                               new_split_value)
+                           'split_value'] = new_split_value
+
+    new_tree$tree_matrix[node_to_change, 8:ncol(new_tree$tree_matrix)] = new_split_coefs
+
 
     # Update the tree node indices
     new_tree = fill_tree_details(new_tree, X)
 
     # Store the covariate name that was used in the splitting rule of the terminal node that was just changed
-    new_tree$var = c(var_changed_node, new_split_variable)
+    # new_tree$var = c(var_changed_node, new_split_variable)
 
     # Check for bad tree
     if(any(as.numeric(new_tree$tree_matrix[terminal_nodes, 'node_size']) <= node_min_size)) {
@@ -337,7 +505,7 @@ change_tree = function(X, y, curr_tree, node_min_size) {
       bad_trees = FALSE
     }
     if(count_bad_trees == max_bad_trees){
-      curr_tree$var = c(0, 0)
+      # curr_tree$var = c(0, 0)
       return(curr_tree)
     }
 
@@ -351,6 +519,8 @@ change_tree = function(X, y, curr_tree, node_min_size) {
 # swap_tree function ------------------------------------------------------
 
 swap_tree = function(X, y, curr_tree, node_min_size) {
+
+  stop("Swap proposals currently not supported. Code not written.")
 
   # Swap takes two neighbouring internal nodes and swaps around their split values and variables
 

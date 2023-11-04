@@ -2,6 +2,12 @@
 predict_mybart = function(object, newdata,
                          type = c('all', 'median', 'mean')) {
 
+
+
+  for(i in 1:ncol(newdata)) {
+    newdata[,i] <- object$ecdfs[[i]](newdata[,i])
+  }
+
   # Create holder for predicted values
   n_newX = dim(newdata)[1]
   n_its = object$npost
@@ -31,6 +37,10 @@ predict_mybart = function(object, newdata,
 #' @export
 marginal_predict_mybart = function(object, var_marg, newdata,
                                type = c('all', 'median', 'mean')) {
+
+  for(i in 1:ncol(newdata)) {
+    newdata[,i] <- object$ecdfs[[i]](newdata[,i])
+  }
 
   # Create holder for predicted values
   n_newX = dim(newdata)[1]
