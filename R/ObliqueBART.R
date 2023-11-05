@@ -18,6 +18,7 @@ make_01_norm <- function(x) {
 #' @param y Training outcome vector.
 #' @param coef_prior Prior distribution for splitting coefficients: "univariate_normal", "multivariate_normal", or "simplex"
 #' @param coef_hyperprior Hyperprior for splitting coefficients.
+#' @param p_bar Parameter if coef_hyperprior is univariate_normal_fixed_binomial. Mean number of covariates included in splitting rules.
 #' @return The following objects are returned:
 #' \item{trees}{List (over MCMC iterations) of lists (over trees in a sum-of-trees model) of tree matrices.}
 #'
@@ -43,7 +44,9 @@ ObliqueBART <- function(   x,
                    nu_cov = 2,
                    coef_prior = "univariate_normal",        # Prior distribution for splitting coefficients
                    coef_hyperprior = "none",
-                   threshold_prior = "discrete_uniform"
+                   coef_norm_hyperprior = "fixed", # fixed at zero, or varying
+                   threshold_prior = "discrete_uniform",
+                   p_bar = ceiling(ncol(x)/3)
                    ) {
 
 
@@ -78,7 +81,10 @@ ObliqueBART <- function(   x,
   # if(!is.na(coef_hyperprior)){
   if(!(coef_hyperprior %in% c("none",
                               "univariate_normal",
-                         "multivariate_normal"#,
+                              "univariate_normal_fixed_binomial",
+                              "univariate_normal_betabinomial_onetheta",
+                              "univariate_normal_betabinomial_theta_j",
+                              "multivariate_normal"#,
                          # "simplex"
                          ))){
     stop("Currently supported splitting coefficient hyperprior options are:
@@ -89,7 +95,11 @@ ObliqueBART <- function(   x,
   # check coefficient prior and hyperprior match
   if(coef_hyperprior != "none"){
     if(coef_prior == "univariate_normal"){
-      if(coef_hyperprior != "univariate_normal"){
+      if(!(coef_hyperprior %in% c(#"none",
+                                  "univariate_normal",
+                                  "univariate_normal_fixed_binomial",
+                                  "univariate_normal_betabinomial_onetheta",
+                                  "univariate_normal_betabinomial_theta_j" ) )){
         stop("Currently only the univariate normal hyperprior is supported for a univariate normal coefficient prior")
       }
     }
@@ -184,29 +194,76 @@ ObliqueBART <- function(   x,
     hyp_par_list$beta_bar_vec <- rep(0, p) # initialize hyperparameter mean at zero?
     hyp_par_list$sigma2_beta_vec <- sigma2_beta_vec
 
+
+    if(coef_hyperprior == "univariate_normal"){
+      sigma2_beta_bar <- sigma2_beta_vec # difficult to know how to set variance of hyperparameter means
+    }
+    if(coef_hyperprior == "univariate_normal_fixed_binomial"){
+      hyp_par_list$theta <- p_bar/p
+    }
+    if(coef_hyperprior == "univariate_normal_betabinomial_onetheta"){
+      hyp_par_list$theta <- p_bar/p #initializing, but will be learned
+      a_theta <- 1
+      b_theta <- 1
+      hyp_par_list$num_success <- 0
+      hyp_par_list$num_splits <- 0
+
+    }
+    if(coef_hyperprior == "univariate_normal_betabinomial_theta_j"){
+      hyp_par_list$theta_vec <- rep(p_bar/p, p) # initializing, but will be learned
+      a_theta <- 1
+      b_theta <- 1
+
+      hyp_par_list$num_success_vec <- rep(0,p)
+      hyp_par_list$num_splits <- 0
+
+    }
+
   }
-  if(coef_hyperprior == "univariate_normal"){
-    hyp_par_list$beta_bar_vec <- rep(0, p) # initialize hyperparameter mean at zero?
-    # hyp_par_list$sigma_beta_vec <- rep(1, p) # What would be a reasonable initial value?
 
 
-    # ridge-like prior sets prior equal to constant (another hyperpameter) times error variance
-    ridge_lambda <- 1
+  # if(coef_hyperprior == "univariate_normal"){
+  #   hyp_par_list$beta_bar_vec <- rep(0, p) # initialize hyperparameter mean at zero?
+  #   # hyp_par_list$sigma_beta_vec <- rep(1, p) # What would be a reasonable initial value?
+  #
+  #
+  #   # ridge-like prior sets prior equal to constant (another hyperpameter) times error variance
+  #   ridge_lambda <- 1
+  #
+  #   sigma2_beta_vec <- rep(ridge_lambda*sigma2, p)
+  #
+  #   # something like the Zellener G-prior uses the inverse sample covariance matrix of the covariates
+  #   # multiplied by sigma
+  #   zell_g <- 1
+  #   zell_diag <- diag(solve( t(x) %*% x ))
+  #   sigma2_beta_vec <- zell_g*zell_diag*sigma2
+  #   hyp_par_list$sigma2_beta_vec <- sigma2_beta_vec
+  #
+  #
+  #
+  # }
 
-    sigma2_beta_vec <- rep(ridge_lambda*sigma2, p)
-
-    # something like the Zellener G-prior uses the inverse sample covariance matrix of the covariates
-    # multiplied by sigma
-    zell_g <- 1
-    zell_diag <- diag(solve( t(x) %*% x ))
-    sigma2_beta_vec <- zell_g*zell_diag*sigma2
-    hyp_par_list$sigma2_beta_vec <- sigma2_beta_vec
 
 
-    sigma2_beta_bar <- sigma2_beta_vec # difficult to know how to set variance of hyperparameter means
+
+
+
+
+
+
+  if(coef_prior == "simplex"){
+
+    # still need to decide whether to constrain beta to be positive
+    # or to randomly assign coefficients to be positive or negative
+    # or to also put prior on the sign of the coefficients
+
+    hyp_par_list$alpha_simplex <- p/2 # Numbers less than p encourage sparsity
+    # See Fisher Simplex regression paper for hyperprior on alpha
+
+    hyp_par_list$xi_vec <- rep(1/p, p)
+
 
   }
-
 
 
 
@@ -276,7 +333,66 @@ ObliqueBART <- function(   x,
 
         if(a > runif(1)) {
           curr_trees[[j]] = new_trees[[j]]
+          # ADD IF STATEMENT FOR RELEVANT HYPERPRIOR
+          if(coef_hyperprior == "univariate_normal_betabinomial_onetheta"){
+            if(curr_trees[[j]]$var_update == 1){
+              if (type =='change'){
+                hyp_par_list$num_success <- hyp_par_list$num_success + sum(curr_trees[[j]]$count_for_update)
+
+                # print(" type=='change' ")
+                # print("hyp_par_list$num_success = ")
+                # print(hyp_par_list$num_success)
+                # print("hyp_par_list$num_splits = ")
+                # print(hyp_par_list$num_splits)
+                # print("curr_trees[[j]]$count_for_update = ")
+                # print(curr_trees[[j]]$count_for_update)
+              }
+              if (type=='grow'){
+                hyp_par_list$num_success <- hyp_par_list$num_success + sum(curr_trees[[j]]$count_for_update)
+                hyp_par_list$num_splits <- hyp_par_list$num_splits + 1
+
+                # print(" type=='grow' ")
+                # print("hyp_par_list$num_success = ")
+                # print(hyp_par_list$num_success)
+                # print("hyp_par_list$num_splits = ")
+                # print(hyp_par_list$num_splits)
+                # print("curr_trees[[j]]$count_for_update = ")
+                # print(curr_trees[[j]]$count_for_update)
+
+              }
+              if (type=='prune'){
+                hyp_par_list$num_success <- hyp_par_list$num_success - sum(curr_trees[[j]]$count_for_update)
+                hyp_par_list$num_splits <- hyp_par_list$num_splits - 1
+
+                # print(" type=='prune' ")
+                # print("hyp_par_list$num_success = ")
+                # print(hyp_par_list$num_success)
+                # print("hyp_par_list$num_splits = ")
+                # print(hyp_par_list$num_splits)
+                # print("curr_trees[[j]]$count_for_update = ")
+                # print(curr_trees[[j]]$count_for_update)
+              }
+            }
+          }
+          if(coef_hyperprior == "univariate_normal_betabinomial_theta_j"){
+            if(curr_trees[[j]]$var_update == 1){
+              if (type =='change'){
+                hyp_par_list$num_success_vec <- hyp_par_list$num_success_vec + curr_trees[[j]]$count_for_update
+              }
+              if (type=='grow'){
+                hyp_par_list$num_success_vec <- hyp_par_list$num_success_vec + curr_trees[[j]]$count_for_update
+                hyp_par_list$num_splits <- hyp_par_list$num_splits + 1
+              }
+              if (type=='prune'){
+                hyp_par_list$num_success_vec <- hyp_par_list$num_success_vec - curr_trees[[j]]$count_for_update
+                hyp_par_list$num_splits <- hyp_par_list$num_splits - 1
+              }
+            }
+          }
         }
+
+
+
 
         # Update mu whether tree accepted or not
         curr_trees[[j]] = simulate_mu(curr_trees[[j]],
@@ -332,12 +448,42 @@ ObliqueBART <- function(   x,
 
     ##### draw hyperparameters ###########
 
+    if(coef_hyperprior == "univariate_normal_betabinomial_onetheta"){
+      hyp_par_list$theta <- rbeta(n = 1,
+                                  shape1 = a_theta + hyp_par_list$num_success ,
+                                  shape2 = b_theta + p* hyp_par_list$num_splits - hyp_par_list$num_success )
+
+      if(is.na(hyp_par_list$theta)){
+        print("a_theta = ")
+        print(a_theta)
+
+        print("b_theta = ")
+        print(b_theta)
+
+        print("hyp_par_list$num_success = ")
+        print(hyp_par_list$num_success)
+
+        print("hyp_par_list$num_splits = ")
+        print(hyp_par_list$num_splits)
+
+      }
+
+    }
+    if(coef_hyperprior == "univariate_normal_betabinomial_theta_j"){
+      for(j in 1:p){
+        hyp_par_list$theta_vec[j] <- rbeta(n = 1,
+                                     shape1 = a_theta + hyp_par_list$num_success_vec[j] ,
+                                     shape2 = b_theta + hyp_par_list$num_splits - hyp_par_list$num_success[j] )
+      }
+    }
+
 
 
   } # End iterations loop
 
   cat('\n') # Make sure progress bar ends on a new line
 
+  ###### return results #############
   return(list(trees = tree_store,
               sigma2 = sigma2_store*y_sd^2,
               y_hat = y_hat_store*y_sd + y_mean,
@@ -349,7 +495,8 @@ ObliqueBART <- function(   x,
               y_sd = y_sd,
               # var_count_store = var_count_store,
               s = s_prob_store,
-              ecdfs = ecdfs
+              ecdfs = ecdfs,
+              hyp_par_list = hyp_par_list
               ))
 
 } # End main function

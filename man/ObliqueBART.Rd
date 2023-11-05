@@ -25,7 +25,9 @@ ObliqueBART(
   nu_cov = 2,
   coef_prior = "univariate_normal",
   coef_hyperprior = "none",
-  threshold_prior = "discrete_uniform"
+  coef_norm_hyperprior = "fixed",
+  threshold_prior = "discrete_uniform",
+  p_bar = ceiling(ncol(x)/3)
 )
 }
 \arguments{
@@ -36,6 +38,8 @@ ObliqueBART(
 \item{coef_prior}{Prior distribution for splitting coefficients: "univariate_normal", "multivariate_normal", or "simplex"}
 
 \item{coef_hyperprior}{Hyperprior for splitting coefficients.}
+
+\item{p_bar}{Parameter if coef_hyperprior is univariate_normal_fixed_binomial. Mean number of covariates included in splitting rules.}
 }
 \value{
 The following objects are returned:

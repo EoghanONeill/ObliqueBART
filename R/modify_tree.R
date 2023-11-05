@@ -89,7 +89,8 @@ update_tree = function(y, # Target variable
   new_tree = switch(type,
                     grow = grow_tree(X, y, curr_tree, node_min_size, s,
                                      coef_prior, coef_hyperprior, hyp_par_list, threshold_prior),
-                    prune = prune_tree(X, y, curr_tree),
+                    prune = prune_tree(X, y, curr_tree,
+                                       coef_prior, coef_hyperprior, hyp_par_list, threshold_prior),
                     change = change_tree(X, y, curr_tree, node_min_size,
                                          coef_prior, coef_hyperprior, hyp_par_list, threshold_prior),
                     swap = swap_tree(X, y, curr_tree, node_min_size))
@@ -155,7 +156,7 @@ grow_tree = function(X, y, curr_tree, node_min_size, s,
                                    sd =  sqrt(hyp_par_list$sigma2_beta_vec[j]))
         }
       }
-      if(coef_prior == "univariate_normal"){
+      if(coef_hyperprior == "univariate_normal"){
         for(j in 1:ncol(X)){
           split_coefs[j] <- rnorm( n = 1,
                                    mean = hyp_par_list$beta_bar_vec[j],
@@ -164,7 +165,60 @@ grow_tree = function(X, y, curr_tree, node_min_size, s,
 
       }
 
+      if((coef_hyperprior == "univariate_normal_fixed_binomial") |
+         (coef_hyperprior == "univariate_normal_betabinomial_onetheta")  ){
+        # sample variables to include
+        gamma_vec <- rbinom(ncol(X), size = 1, prob =  hyp_par_list$theta)
+        if(any(is.na(gamma_vec))){
+          print("hyp_par_list$theta = ")
+          print(hyp_par_list$theta)
+          print("ncol(X) = ")
+          print(ncol(X))
+          stop("gamma_vec NA")
+        }
+
+        split_coefs[gamma_vec == 0] <- 0
+
+        include_inds <- which(gamma_vec == 1)
+        for(j in include_inds){
+          split_coefs[j] <- rnorm( n = 1,
+                                   mean = hyp_par_list$beta_bar_vec[j],
+                                   sd =  sqrt(hyp_par_list$sigma2_beta_vec[j]))
+        }
+      }
+
+      if(coef_hyperprior == "univariate_normal_betabinomial_theta_j"){
+
+        gamma_vec <- rep(NA, ncol(X))
+        for(j in 1:ncol(X)){
+          gamma_vec[j] <- rbinom(1,
+                                 size = 1,
+                                 prob =  hyp_par_list$theta_vec[j])
+          if(gamma_vec[j] ==0){
+            split_coefs[j] <- 0
+          }else{
+            split_coefs[j] <- rnorm( n = 1,
+                                     mean = hyp_par_list$beta_bar_vec[j],
+                                     sd =  sqrt(hyp_par_list$sigma2_beta_vec[j]))
+          }
+        }
+      }
+    } # end coef_prior == "univariate_normal" if statement
+
+
+
+
+    if(coef_prior == "simplex"){
+      if( coef_hyperprior == "none"){
+        # no hyperprior, just draw from the Dirichlet prior
+
+        split_coefs <- rdirichlet(n = 1,
+                                  alpha = hyp_par_list$alpha_simplex * hyp_par_list$xi_vec)
+
+      }
+
     }
+
 
 
     if(any(is.na(split_coefs))){
@@ -240,6 +294,14 @@ grow_tree = function(X, y, curr_tree, node_min_size, s,
 
     # Store the covariate name to use it to update the Dirichlet prior of Linero (2016).
     # new_tree$var = split_variable
+    new_tree$var_update = 1
+    if(coef_hyperprior %in% c("univariate_normal_fixed_binomial",
+                              "univariate_normal_betabinomial_onetheta",
+                              "univariate_normal_betabinomial_theta_j")  ){
+
+      new_tree$count_for_update = gamma_vec
+
+    }
 
     # Check for bad tree
     if(any(as.numeric(new_tree$tree_matrix[,'node_size']) <= node_min_size)) {
@@ -250,6 +312,9 @@ grow_tree = function(X, y, curr_tree, node_min_size, s,
 
     if(count_bad_trees == max_bad_trees) {
       # curr_tree$var = 0
+      curr_tree$var_update = 0
+      curr_tree$count_for_update <- rep(0, ncol(X))
+
       return(curr_tree)
     }
   }
@@ -260,13 +325,17 @@ grow_tree = function(X, y, curr_tree, node_min_size, s,
 
 # Prune_tree function -----------------------------------------------------
 
-prune_tree = function(X, y, curr_tree) {
+prune_tree = function(X, y, curr_tree,
+                      coef_prior, coef_hyperprior, hyp_par_list, threshold_prior) {
 
   # Create placeholder for new tree
   new_tree = curr_tree
 
   if(nrow(new_tree$tree_matrix) == 1) { # No point in pruning a stump!
     # new_tree$var = 0
+    new_tree$var_update = 0
+    new_tree$count_for_update <- rep(0, ncol(X))
+
     return(new_tree)
   }
 
@@ -284,6 +353,7 @@ prune_tree = function(X, y, curr_tree) {
     # Find the parent of this terminal node
     parent_pick = as.numeric(new_tree$tree_matrix[node_to_prune, 'parent'])
     # var_pruned_nodes = as.numeric(new_tree$tree_matrix[parent_pick, 'split_variable'])
+    gamma_pruned_nodes = 1*(as.numeric(new_tree$tree_matrix[parent_pick, 8:ncol(new_tree$tree_matrix)]) != 0 )
 
     # Get the two children of this parent
     child_left = as.numeric(new_tree$tree_matrix[parent_pick, 'child_left'])
@@ -317,6 +387,14 @@ prune_tree = function(X, y, curr_tree) {
   # If we're back to a stump no need to call fill_tree_details
   if(nrow(new_tree$tree_matrix) == 1) {
     # new_tree$var = var_pruned_nodes
+    new_tree$var_update = 1
+    if(coef_hyperprior %in% c("univariate_normal_fixed_binomial",
+                              "univariate_normal_betabinomial_onetheta",
+                              "univariate_normal_betabinomial_theta_j")  ){
+
+      new_tree$count_for_update = gamma_pruned_nodes
+
+    }
     new_tree$node_indices = rep(1, length(y))
   } else {
     # If we've removed some nodes from the middle we need to re-number all the child_left and child_right values - the parent values will still be correct
@@ -341,6 +419,14 @@ prune_tree = function(X, y, curr_tree) {
 
     # Store the covariate name that was used in the splitting rule of the terminal nodes that were just pruned
     # new_tree$var = var_pruned_nodes
+    new_tree$var_update = 1
+    if(coef_hyperprior %in% c("univariate_normal_fixed_binomial",
+                              "univariate_normal_betabinomial_onetheta",
+                              "univariate_normal_betabinomial_theta_j")  ){
+
+      new_tree$count_for_update = gamma_pruned_nodes
+
+    }
 
   }
 
@@ -362,6 +448,9 @@ change_tree = function(X, y, curr_tree, node_min_size,
   # If current tree is a stump nothing to change
   if(nrow(curr_tree$tree_matrix) == 1) {
     # curr_tree$var = c(0, 0)
+    curr_tree$var_update = 0
+    curr_tree$count_for_update <- rep(0, ncol(X))
+
     return(curr_tree)
   }
 
@@ -422,23 +511,79 @@ change_tree = function(X, y, curr_tree, node_min_size,
 
     # can vectorize this to speed up
     if(coef_prior == "univariate_normal"){
-      if(coef_hyperprior == "none"){
+      if( coef_hyperprior == "none"){
         for(j in 1:ncol(X)){
           new_split_coefs[j] <- rnorm( n = 1,
                                    mean = 0,
                                    sd =  sqrt(hyp_par_list$sigma2_beta_vec[j]))
         }
       }
-      if(coef_prior == "univariate_normal"){
+      if(coef_hyperprior == "univariate_normal"){
         for(j in 1:ncol(X)){
           new_split_coefs[j] <- rnorm( n = 1,
                                    mean = hyp_par_list$beta_bar_vec[j],
                                    sd =  sqrt(hyp_par_list$sigma2_beta_vec[j]))
         }
+      }
+
+      if((coef_hyperprior == "univariate_normal_fixed_binomial") |
+         (coef_hyperprior == "univariate_normal_betabinomial_onetheta")  ){
+        # sample variables to include
+        gamma_vec <- rbinom(ncol(X), size = 1, prob =  hyp_par_list$theta)
+        if(any(is.na(gamma_vec))){
+          print("hyp_par_list$theta = ")
+          print(hyp_par_list$theta)
+          print("ncol(X) = ")
+          print(ncol(X))
+          stop("gamma_vec NA")
+        }
+
+        new_split_coefs[gamma_vec == 0] <- 0
+        include_inds <- which(gamma_vec == 1)
+        for(j in include_inds){
+          new_split_coefs[j] <- rnorm( n = 1,
+                                   mean = hyp_par_list$beta_bar_vec[j],
+                                   sd =  sqrt(hyp_par_list$sigma2_beta_vec[j]))
+        }
+
+        gamma_changed_node <- 1*(as.numeric(new_tree$tree_matrix[node_to_change, 8:ncol(new_tree$tree_matrix)]) != 0)
+
+
+      }
+      if(coef_hyperprior == "univariate_normal_betabinomial_theta_j"){
+        gamma_vec <- rep(NA, ncol(X))
+        for(j in 1:ncol(X)){
+          gamma_vec[j] <- rbinom(1,
+                                 size = 1,
+                                 prob =  hyp_par_list$theta_vec[j])
+          if(gamma_vec[j] ==0){
+            new_split_coefs[j] <- 0
+          }else{
+            new_split_coefs[j] <- rnorm( n = 1,
+                                     mean = hyp_par_list$beta_bar_vec[j],
+                                     sd =  sqrt(hyp_par_list$sigma2_beta_vec[j]))
+          }
+        }
+
+        gamma_changed_node <- 1*(as.numeric(new_tree$tree_matrix[node_to_change, 8:ncol(new_tree$tree_matrix)]) != 0)
+
+      }
+    } # end coef_prior == "univariate_normal" if statement
+
+
+
+    if(coef_prior == "simplex"){
+      if( coef_hyperprior == "none"){
+        # no hyperprior, just draw from the Dirichlet prior
+
+        new_split_coefs <- rdirichlet(n = 1,
+                                  alpha = hyp_par_list$alpha_simplex * hyp_par_list$xi_vec)
 
       }
 
     }
+
+
 
     if(any(is.na(new_split_coefs))){
       stop("NA in new_split_coefs")
@@ -497,6 +642,14 @@ change_tree = function(X, y, curr_tree, node_min_size,
 
     # Store the covariate name that was used in the splitting rule of the terminal node that was just changed
     # new_tree$var = c(var_changed_node, new_split_variable)
+    new_tree$var_update = 1
+    if(coef_hyperprior %in% c("univariate_normal_fixed_binomial",
+                               "univariate_normal_betabinomial_onetheta",
+                               "univariate_normal_betabinomial_theta_j")  ){
+
+      new_tree$count_for_update <- gamma_vec - gamma_changed_node
+
+    }
 
     # Check for bad tree
     if(any(as.numeric(new_tree$tree_matrix[terminal_nodes, 'node_size']) <= node_min_size)) {
@@ -506,6 +659,8 @@ change_tree = function(X, y, curr_tree, node_min_size,
     }
     if(count_bad_trees == max_bad_trees){
       # curr_tree$var = c(0, 0)
+      curr_tree$var_update = 0
+      curr_tree$count_for_update <- rep(0, ncol(X))
       return(curr_tree)
     }
 
