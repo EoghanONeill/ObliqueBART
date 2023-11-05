@@ -64,5 +64,24 @@ testres <- predict_mybart(bartFit, xtest,
 
 cbind(apply(testres,2,mean) , ytest)
 
+
+
+#### example of how the hyperprior can learn the important covariates
+
+
+bartFit <- ObliqueBART(x, y, ntree = 10, nburn = 10000, npost = 10000,
+                       coef_prior = "univariate_normal",
+                       coef_hyperprior = "univariate_normal_betabinomial_theta_j",
+                       coef_norm_hyperprior = "fixed")
+
+testres <- predict_mybart(bartFit, xtest,
+               type = 'all')
+
+cbind(apply(testres,2,mean) , ytest)
+
+bartFit$hyp_par_list$theta_vec
+
+
+
 ```
 
