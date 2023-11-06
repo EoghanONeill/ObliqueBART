@@ -24,7 +24,7 @@ make_01_norm <- function(x) {
 #'
 #' @useDynLib ObliqueBART, .registration = TRUE
 #' @export
-ObliqueBART <- function(   x,
+ObliqueBART <- function(x,
                    y,
                    sparse = TRUE,
                    ntrees = 10,
@@ -46,9 +46,17 @@ ObliqueBART <- function(   x,
                    coef_hyperprior = "none",
                    coef_norm_hyperprior = "fixed", # fixed at zero, or varying
                    threshold_prior = "discrete_uniform",
-                   p_bar = ceiling(ncol(x)/3)
+                   p_bar = ceiling(ncol(x)/3),
+                   norm_sigma_init = "Zellner" # if a normal prior, initialize prior variaince with Zellner's prior or ridge?
                    ) {
 
+
+
+  if(!(norm_sigma_init %in% c("Zellner",
+                              "ridge"))){
+    stop("Currently supported norm_sigma_init options are:
+         Zellner, ridge")
+  }
 
   # check threshold prior options
   if(!(threshold_prior %in% c("discrete_uniform",
@@ -84,9 +92,11 @@ ObliqueBART <- function(   x,
                               "univariate_normal_fixed_binomial",
                               "univariate_normal_betabinomial_onetheta",
                               "univariate_normal_betabinomial_theta_j",
-                              "multivariate_normal"#,
-                         # "simplex"
-                         ))){
+                              "multivariate_normal",
+                              "simplex_fixed_beta_binomial_theta_j",
+                              "simplex_fixed_Dir_trinomial_theta_j",
+                              "simplex_fixed_Dir_binomial_plusminus_theta_j"
+  ))){
     stop("Currently supported splitting coefficient hyperprior options are:
        none, univariate_normal, multivariate_normal")
   }
@@ -109,7 +119,17 @@ ObliqueBART <- function(   x,
       }
     }
     if(coef_prior == "simplex"){
-      stop("Currently no hyperpriors supported for simplex coefficient prior")
+      if(!(coef_hyperprior %in% c(#"none",
+        "simplex_fixed_beta_binomial_theta_j",
+        "simplex_fixed_Dir_trinomial_theta_j",
+        "simplex_fixed_Dir_binomial_plusminus_theta_j") )){
+        stop("Currently simplex hyperprior options are:
+             none,
+             simplex_fixed_beta_binomial_theta_j,
+             simplex_fixed_Dir_trinomial_theta_j,
+             simplex_fixed_Dir_binomial_plusminus_theta_j")
+      }
+      # stop("Currently no hyperpriors supported for simplex coefficient prior")
       # if(coef_hyperprior != "multivariate_normal"){
       #   stop("Currently only the multivariate normal hyperprior is supported for a multivariate normal coefficient prior")
       # }
@@ -180,16 +200,19 @@ ObliqueBART <- function(   x,
    # maybe it would be better to have a vector of coefficient values? Scaled by a linear regression or ridge?
    # Scale covariates first?
 
-    # ridge-like prior sets prior equal to constant (another hyperpameter) times error variance
-    ridge_lambda <- 1
+    if(norm_sigma_init == "ridge"){
+      # ridge-like prior sets prior equal to constant (another hyperpameter) times error variance
+      ridge_lambda <- 1
 
-    sigma2_beta_vec <- rep(ridge_lambda*sigma2, p)
-
-    # something like the Zellener G-prior uses the inverse sample covariance matrix of the covariates
-    # multiplied by sigma
-    zell_g <- 1
-    zell_diag <- diag(solve( t(x) %*% x ))
-    sigma2_beta_vec <- zell_g*zell_diag*sigma2
+      sigma2_beta_vec <- rep(ridge_lambda*sigma2, p)
+    }
+    if(norm_sigma_init == "Zellner"){
+      # something like the Zellener G-prior uses the inverse sample covariance matrix of the covariates
+      # multiplied by sigma
+      zell_g <- 1
+      zell_diag <- diag(solve( t(x) %*% x ))
+      sigma2_beta_vec <- zell_g*zell_diag*sigma2
+    }
 
     hyp_par_list$beta_bar_vec <- rep(0, p) # initialize hyperparameter mean at zero?
     hyp_par_list$sigma2_beta_vec <- sigma2_beta_vec
@@ -216,6 +239,15 @@ ObliqueBART <- function(   x,
 
       hyp_par_list$num_success_vec <- rep(0,p)
       hyp_par_list$num_splits <- 0
+
+    }
+
+
+
+    if(coef_norm_hyperprior == "varying"){
+      hyp_par_list$coef_sum_vec <- rep(0,p)
+      sigma2_beta_bar <- sigma2_beta_vec # difficult to know how to set variance of hyperparameter means
+
 
     }
 
@@ -262,6 +294,44 @@ ObliqueBART <- function(   x,
 
     hyp_par_list$xi_vec <- rep(1/p, p)
 
+    if(coef_hyperprior == "simplex_fixed_beta_binomial_theta_j"){
+      hyp_par_list$theta_vec <- rep(p_bar/p, p) # initializing, but will be learned
+      a_theta <- 1
+      b_theta <- 1
+
+      hyp_par_list$num_success_vec <- rep(0,p)
+      hyp_par_list$num_splits <- 0
+
+    }
+
+    if(coef_hyperprior == "simplex_fixed_Dir_binomial_plusminus_theta_j"){
+      hyp_par_list$theta_vec <- rep(1/2, p) # initializing, but will be learned
+      a_theta <- 1
+      b_theta <- 1
+
+      hyp_par_list$num_success_vec <- rep(0,p)
+      hyp_par_list$num_splits <- 0
+
+    }
+
+    if(coef_hyperprior == "simplex_fixed_Dir_trinomial_theta_j"){
+      theta_1_bar <- rep(p_bar/(p), p) # initializing, but will be learned
+      theta_0_bar <- rep(1 - 2*(p_bar/p), p) # initializing, but will be learned
+      theta_min1_bar <- rep(p_bar/(p), p) # initializing, but will be learned
+
+      hyp_par_list$theta_1_vec <- rep(p_bar/(p), p) # initializing, but will be learned
+      hyp_par_list$theta_0_vec <- rep(1 - 2*(p_bar/p), p) # initializing, but will be learned
+      hyp_par_list$theta_min1_vec <- rep(p_bar/(p), p) # initializing, but will be learned
+
+      a_theta <- 1
+      b_theta <- 1
+
+      hyp_par_list$num_1_vec <- rep(0,p)
+      hyp_par_list$num_0_vec <- rep(0,p)
+      hyp_par_list$num_min1_vec <- rep(0,p)
+      hyp_par_list$num_splits <- 0
+
+    }
 
   }
 
@@ -307,7 +377,8 @@ ObliqueBART <- function(   x,
                                      coef_prior,        # Prior distribution for splitting coefficients
                                      coef_hyperprior,   # hyperprior for splitting coefficients
                                      hyp_par_list,      # list of hyperparameters for splitting coefficients,
-                                     threshold_prior    # threshold prior
+                                     threshold_prior,    # threshold prior
+                                     coef_norm_hyperprior # if normal hyperprior, fixed (i.e just vairable selection), or actually adapt mean of normal?
                                      )
 
         # CURRENT TREE: compute the log of the marginalised likelihood + log of the tree prior
@@ -346,6 +417,9 @@ ObliqueBART <- function(   x,
                 # print(hyp_par_list$num_splits)
                 # print("curr_trees[[j]]$count_for_update = ")
                 # print(curr_trees[[j]]$count_for_update)
+                if(coef_norm_hyperprior == "varying"){
+                  hyp_par_list$coef_sum_vec <- hyp_par_list$coef_sum_vec + curr_trees[[j]]$coef_for_sum_vec
+                }
               }
               if (type=='grow'){
                 hyp_par_list$num_success <- hyp_par_list$num_success + sum(curr_trees[[j]]$count_for_update)
@@ -358,7 +432,9 @@ ObliqueBART <- function(   x,
                 # print(hyp_par_list$num_splits)
                 # print("curr_trees[[j]]$count_for_update = ")
                 # print(curr_trees[[j]]$count_for_update)
-
+                if(coef_norm_hyperprior == "varying"){
+                  hyp_par_list$coef_sum_vec <- hyp_par_list$coef_sum_vec + curr_trees[[j]]$coef_for_sum_vec
+                }
               }
               if (type=='prune'){
                 hyp_par_list$num_success <- hyp_par_list$num_success - sum(curr_trees[[j]]$count_for_update)
@@ -371,23 +447,65 @@ ObliqueBART <- function(   x,
                 # print(hyp_par_list$num_splits)
                 # print("curr_trees[[j]]$count_for_update = ")
                 # print(curr_trees[[j]]$count_for_update)
+                if(coef_norm_hyperprior == "varying"){
+                  hyp_par_list$coef_sum_vec <- hyp_par_list$coef_sum_vec - curr_trees[[j]]$coef_for_sum_vec
+                }
               }
             }
           }
-          if(coef_hyperprior == "univariate_normal_betabinomial_theta_j"){
+
+          if( coef_hyperprior %in% c( "univariate_normal_betabinomial_theta_j" ,
+                                      "simplex_fixed_beta_binomial_theta_j",
+                                      "simplex_fixed_Dir_binomial_plusminus_theta_j") ){
+
             if(curr_trees[[j]]$var_update == 1){
               if (type =='change'){
                 hyp_par_list$num_success_vec <- hyp_par_list$num_success_vec + curr_trees[[j]]$count_for_update
+                if(coef_norm_hyperprior == "varying"){
+                  hyp_par_list$coef_sum_vec <- hyp_par_list$coef_sum_vec + curr_trees[[j]]$coef_for_sum_vec
+                }
               }
               if (type=='grow'){
                 hyp_par_list$num_success_vec <- hyp_par_list$num_success_vec + curr_trees[[j]]$count_for_update
                 hyp_par_list$num_splits <- hyp_par_list$num_splits + 1
+                if(coef_norm_hyperprior == "varying"){
+                  hyp_par_list$coef_sum_vec <- hyp_par_list$coef_sum_vec + curr_trees[[j]]$coef_for_sum_vec
+                }
               }
               if (type=='prune'){
                 hyp_par_list$num_success_vec <- hyp_par_list$num_success_vec - curr_trees[[j]]$count_for_update
                 hyp_par_list$num_splits <- hyp_par_list$num_splits - 1
+                if(coef_norm_hyperprior == "varying"){
+                  hyp_par_list$coef_sum_vec <- hyp_par_list$coef_sum_vec - curr_trees[[j]]$coef_for_sum_vec
+                }
               }
             }
+          }
+
+
+          if(coef_hyperprior == "simplex_fixed_Dir_trinomial_theta_j"){
+            if(curr_trees[[j]]$var_update == 1){
+              if (type =='change'){
+                hyp_par_list$num_min1_vec <- hyp_par_list$num_min1_vec + curr_trees[[j]]$count_min1_for_update
+                hyp_par_list$num_0_vec <- hyp_par_list$num_0_vec + curr_trees[[j]]$count_0_for_update
+                hyp_par_list$num_1_vec <- hyp_par_list$num_1_vec + curr_trees[[j]]$count_1_for_update
+              }
+              if (type=='grow'){
+                hyp_par_list$num_min1_vec <- hyp_par_list$num_min1_vec + curr_trees[[j]]$count_min1_for_update
+                hyp_par_list$num_0_vec <- hyp_par_list$num_0_vec + curr_trees[[j]]$count_0_for_update
+                hyp_par_list$num_1_vec <- hyp_par_list$num_1_vec + curr_trees[[j]]$count_1_for_update
+                hyp_par_list$num_splits <- hyp_par_list$num_splits + 1
+
+              }
+              if (type=='prune'){
+                hyp_par_list$num_min1_vec <- hyp_par_list$num_min1_vec - curr_trees[[j]]$count_min1_for_update
+                hyp_par_list$num_0_vec <- hyp_par_list$num_0_vec - curr_trees[[j]]$count_0_for_update
+                hyp_par_list$num_1_vec <- hyp_par_list$num_1_vec - curr_trees[[j]]$count_1_for_update
+                hyp_par_list$num_splits <- hyp_par_list$num_splits - 1
+
+              }
+            }
+
           }
         }
 
@@ -429,13 +547,17 @@ ObliqueBART <- function(   x,
       # ridge-like prior sets prior equal to constant (another hyperpameter) times error variance
       # ridge_lambda <- 1
 
-      sigma2_beta_vec <- rep(ridge_lambda*sigma2, p)
-
+      if(norm_sigma_init == "ridge"){
+        sigma2_beta_vec <- rep(ridge_lambda*sigma2, p)
+      }
       # something like the Zellener G-prior uses the inverse sample covariance matrix of the covariates
       # multiplied by sigma
       # zell_g <- 1
       # zell_diag <- diag(solve(t(x)%*%X))
-      sigma2_beta_vec <- zell_g*zell_diag*sigma2
+
+      if(norm_sigma_init == "Zellner"){
+        sigma2_beta_vec <- zell_g*zell_diag*sigma2
+      }
 
       hyp_par_list$sigma2_beta_vec <- sigma2_beta_vec
 
@@ -469,11 +591,56 @@ ObliqueBART <- function(   x,
       }
 
     }
-    if(coef_hyperprior == "univariate_normal_betabinomial_theta_j"){
+    if( coef_hyperprior %in% c( "univariate_normal_betabinomial_theta_j" ,
+                                "simplex_fixed_beta_binomial_theta_j",
+                                "simplex_fixed_Dir_binomial_plusminus_theta_j") ){
       for(j in 1:p){
         hyp_par_list$theta_vec[j] <- rbeta(n = 1,
                                      shape1 = a_theta + hyp_par_list$num_success_vec[j] ,
                                      shape2 = b_theta + hyp_par_list$num_splits - hyp_par_list$num_success[j] )
+      }
+    }
+
+
+    if(coef_norm_hyperprior == "varying"){
+      for(j in 1:p){
+        tempvar <- 1/( (1/sigma2_beta_bar[j]) + (hyp_par_list$num_success[j]/sigma2_beta_vec[j])   )
+        # print("sigma2_beta_bar[j] = ")
+        # print(sigma2_beta_bar[j])
+        hyp_par_list$beta_bar_vec[j] <- rnorm(1,
+                                              mean = tempvar* hyp_par_list$coef_sum_vec[j] /sigma2_beta_vec[j],
+                                              sd = sqrt(tempvar)
+                                              )
+
+        # print("hyp_par_list$coef_sum_vec[j] = ")
+        # print(hyp_par_list$coef_sum_vec[j])
+        # print("sigma2_beta_vec[j] = ")
+        # print(sigma2_beta_vec[j])
+        # print("tempvar[j] = ")
+        # print(tempvar[j])
+        # print("i = ")
+        # print(i)
+        # print("j = ")
+        # print(j)
+        # if(is.na(hyp_par_list$beta_bar_vec[j])){
+        #   stop("NA beta bar draw")
+        # }
+
+      }
+    }
+
+
+
+    if(coef_hyperprior == "simplex_fixed_Dir_trinomial_theta_j"){
+      for(j in 1:p){
+        temp_theta_vec <- rdirichlet(n = 1,
+                                     alpha = c(theta_min1_bar +  hyp_par_list$num_min1_vec,
+                                               theta_0_bar +  hyp_par_list$num_0_vec,
+                                               theta_1_bar +  hyp_par_list$num_1_vec))
+
+        hyp_par_list$theta_min1_vec[j] <- temp_theta_vec[1]
+        hyp_par_list$theta_0_vec[j] <- temp_theta_vec[2]
+        hyp_par_list$theta_1_vec[j] <- temp_theta_vec[3]
       }
     }
 

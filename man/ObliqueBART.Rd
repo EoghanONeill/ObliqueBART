@@ -27,7 +27,8 @@ ObliqueBART(
   coef_hyperprior = "none",
   coef_norm_hyperprior = "fixed",
   threshold_prior = "discrete_uniform",
-  p_bar = ceiling(ncol(x)/3)
+  p_bar = ceiling(ncol(x)/3),
+  norm_sigma_init = "Zellner"
 )
 }
 \arguments{
