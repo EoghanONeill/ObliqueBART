@@ -194,7 +194,8 @@ grow_tree = function(X, y, curr_tree, node_min_size, s,
         }
       }
 
-      if(coef_hyperprior == "univariate_normal_betabinomial_theta_j"){
+      if(coef_hyperprior %in% c("univariate_normal_betabinomial_theta_j",
+                                "univariate_normal_betabinomial_theta_j_sigma_j")){
         gamma_vec <- rep(0, ncol(X))
         while(all(gamma_vec ==0)){ # cannot propose a split without nonzero coefficients
 
@@ -269,6 +270,30 @@ grow_tree = function(X, y, curr_tree, node_min_size, s,
           # }
         }
       }
+
+
+      if( coef_hyperprior == "simplex_fixed_Dir_binomial_plusminus_theta_j_xi_j"){
+        # no hyperprior, just draw from the Dirichlet prior
+        gamma_vec <- rep(0, ncol(X))
+        while(all(gamma_vec ==0)){ # cannot propose a split without nonzero coefficients
+
+          for(j in 1:ncol(X)){
+            gamma_vec[j] <- rbinom(1,
+                                   size = 1,
+                                   prob =  hyp_par_list$theta_vec[j])
+          }
+
+          split_coefs <- t(rdirichlet(n = 1,
+                                      alpha = hyp_par_list$xi_vec))
+
+          split_coefs[ gamma_vec == 0] <- -1* split_coefs[ gamma_vec == 0]
+
+          # }
+        }
+      }
+
+
+
 
 
       if(coef_hyperprior == "simplex_fixed_Dir_trinomial_theta_j"){
@@ -417,12 +442,15 @@ grow_tree = function(X, y, curr_tree, node_min_size, s,
     if(coef_hyperprior %in% c("univariate_normal_fixed_binomial",
                               "univariate_normal_betabinomial_onetheta",
                               "univariate_normal_betabinomial_theta_j",
+                              "univariate_normal_betabinomial_theta_j_sigma_j",
                               "simplex_fixed_beta_binomial_theta_j",
-                              "simplex_fixed_Dir_binomial_plusminus_theta_j")  ){
+                              "simplex_fixed_Dir_binomial_plusminus_theta_j",
+                              "simplex_fixed_Dir_binomial_plusminus_theta_j_xi_j")  ){
 
       new_tree$count_for_update = gamma_vec
 
     }
+
     if(coef_hyperprior == "simplex_fixed_Dir_trinomial_theta_j"){
       new_tree$count_min1_for_update = 1*(delta_vec == -1)
       new_tree$count_0_for_update = 1*(delta_vec == 0)
@@ -432,6 +460,14 @@ grow_tree = function(X, y, curr_tree, node_min_size, s,
     if(coef_norm_hyperprior == "varying"){
       new_tree$coef_for_sum_vec <- split_coefs
     }
+
+    if(coef_hyperprior == "univariate_normal_betabinomial_theta_j_sigma_j"){
+      new_tree$coef_for_sumsq_vec <- gamma_vec*(split_coefs)^2
+    }
+    if(coef_hyperprior == "simplex_fixed_Dir_binomial_plusminus_theta_j_xi_j"){
+      new_tree$coef_for_logsum_vec <- log(abs(split_coefs ))
+    }
+
     # Check for bad tree
     if(any(as.numeric(new_tree$tree_matrix[,'node_size']) <= node_min_size)) {
       count_bad_trees = count_bad_trees + 1
@@ -445,6 +481,12 @@ grow_tree = function(X, y, curr_tree, node_min_size, s,
       curr_tree$count_for_update <- rep(0, ncol(X))
       if(coef_norm_hyperprior == "varying"){
         new_tree$coef_for_sum_vec <- rep(0, ncol(X))
+      }
+      if(coef_hyperprior == "univariate_normal_betabinomial_theta_j_sigma_j"){
+        new_tree$coef_for_sumsq_vec <- rep(0, ncol(X))
+      }
+      if(coef_hyperprior == "simplex_fixed_Dir_binomial_plusminus_theta_j_xi_j"){
+        new_tree$coef_for_logsum_vec <- rep(0, ncol(X))
       }
       return(curr_tree)
     }
@@ -469,6 +511,12 @@ prune_tree = function(X, y, curr_tree,
     new_tree$count_for_update <- rep(0, ncol(X))
     if(coef_norm_hyperprior == "varying"){
       new_tree$coef_for_sum_vec <- rep(0, ncol(X))
+    }
+    if(coef_hyperprior == "univariate_normal_betabinomial_theta_j_sigma_j"){
+      new_tree$coef_for_sumsq_vec <- rep(0, ncol(X))
+    }
+    if(coef_hyperprior == "simplex_fixed_Dir_binomial_plusminus_theta_j_xi_j"){
+      new_tree$coef_for_logsum_vec <- rep(0, ncol(X))
     }
     return(new_tree)
   }
@@ -526,13 +574,15 @@ prune_tree = function(X, y, curr_tree,
     if(coef_hyperprior %in% c("univariate_normal_fixed_binomial",
                               "univariate_normal_betabinomial_onetheta",
                               "univariate_normal_betabinomial_theta_j",
+                              "univariate_normal_betabinomial_theta_j_sigma_j",
                               "simplex_fixed_beta_binomial_theta_j")  ){
 
       new_tree$count_for_update = gamma_pruned_nodes
 
     }
 
-    if(coef_hyperprior == "simplex_fixed_Dir_binomial_plusminus_theta_j"){
+    if(coef_hyperprior %in% c("simplex_fixed_Dir_binomial_plusminus_theta_j",
+                              "simplex_fixed_Dir_binomial_plusminus_theta_j_xi_j")){
       new_tree$count_for_update <- 1*(pruned_coefs >= 0 )
     }
 
@@ -547,6 +597,13 @@ prune_tree = function(X, y, curr_tree,
     if(coef_norm_hyperprior == "varying"){
       new_tree$coef_for_sum_vec <- pruned_coefs
     }
+    if(coef_hyperprior == "univariate_normal_betabinomial_theta_j_sigma_j"){
+      new_tree$coef_for_sumsq_vec <- gamma_pruned_nodes*(pruned_coefs )^2
+    }
+    if(coef_hyperprior == "simplex_fixed_Dir_binomial_plusminus_theta_j_xi_j"){
+      new_tree$coef_for_logsum_vec <- log(abs(pruned_coefs ))
+    }
+
     new_tree$node_indices = rep(1, length(y))
   } else {
     # If we've removed some nodes from the middle we need to re-number all the child_left and child_right values - the parent values will still be correct
@@ -575,10 +632,12 @@ prune_tree = function(X, y, curr_tree,
     if(coef_hyperprior %in% c("univariate_normal_fixed_binomial",
                               "univariate_normal_betabinomial_onetheta",
                               "univariate_normal_betabinomial_theta_j",
+                              "univariate_normal_betabinomial_theta_j_sigma_j",
                               "simplex_fixed_beta_binomial_theta_j")  ){
       new_tree$count_for_update = gamma_pruned_nodes
     }
-    if(coef_hyperprior == "simplex_fixed_Dir_binomial_plusminus_theta_j"){
+    if(coef_hyperprior %in% c("simplex_fixed_Dir_binomial_plusminus_theta_j",
+                              "simplex_fixed_Dir_binomial_plusminus_theta_j_xi_j")){
       new_tree$count_for_update <- 1*(pruned_coefs >= 0 )
     }
 
@@ -591,6 +650,13 @@ prune_tree = function(X, y, curr_tree,
     if(coef_norm_hyperprior == "varying"){
       new_tree$coef_for_sum_vec <- pruned_coefs
     }
+    if(coef_hyperprior == "univariate_normal_betabinomial_theta_j_sigma_j"){
+      new_tree$coef_for_sumsq_vec <- gamma_pruned_nodes*(pruned_coefs )^2
+    }
+    if(coef_hyperprior == "simplex_fixed_Dir_binomial_plusminus_theta_j_xi_j"){
+      new_tree$coef_for_logsum_vec <- log(abs(pruned_coefs ))
+    }
+
   }
 
   # Return new_tree
@@ -616,6 +682,12 @@ change_tree = function(X, y, curr_tree, node_min_size,
     curr_tree$count_for_update <- rep(0, ncol(X))
     if(coef_norm_hyperprior == "varying"){
       new_tree$coef_for_sum_vec <- rep(0, ncol(X))
+    }
+    if(coef_hyperprior == "univariate_normal_betabinomial_theta_j_sigma_j"){
+      new_tree$coef_for_sumsq_vec <-  rep(0, ncol(X))
+    }
+    if(coef_hyperprior == "simplex_fixed_Dir_binomial_plusminus_theta_j_xi_j"){
+      new_tree$coef_for_logsum_vec <- rep(0, ncol(X))
     }
     return(curr_tree)
   }
@@ -719,7 +791,8 @@ change_tree = function(X, y, curr_tree, node_min_size,
         }
 
       }
-      if(coef_hyperprior == "univariate_normal_betabinomial_theta_j"){
+      if(coef_hyperprior %in% c("univariate_normal_betabinomial_theta_j",
+                                "univariate_normal_betabinomial_theta_j_sigma_j")){
         gamma_vec <- rep(0, ncol(X))
         while(all(gamma_vec ==0)){ # cannot propose a split without nonzero coefficients
           gamma_vec <- rep(NA, ncol(X))
@@ -798,6 +871,28 @@ change_tree = function(X, y, curr_tree, node_min_size,
           # }
         }
       }
+
+      if( coef_hyperprior == "simplex_fixed_Dir_binomial_plusminus_theta_j_xi_j"){
+        # no hyperprior, just draw from the Dirichlet prior
+        gamma_vec <- rep(0, ncol(X))
+        while(all(gamma_vec ==0)){ # cannot propose a split without nonzero coefficients
+
+          for(j in 1:ncol(X)){
+            gamma_vec[j] <- rbinom(1,
+                                   size = 1,
+                                   prob =  hyp_par_list$theta_vec[j])
+          }
+
+          new_split_coefs <- t(rdirichlet(n = 1,
+                                          alpha = hyp_par_list$xi_vec))
+
+          new_split_coefs[ gamma_vec == 0] <- -1* new_split_coefs[ gamma_vec == 0]
+          coefs_changed_node <- as.numeric(new_tree$tree_matrix[node_to_change, 8:ncol(new_tree$tree_matrix)])
+
+          # }
+        }
+      }
+
 
 
       if(coef_hyperprior == "simplex_fixed_Dir_trinomial_theta_j"){
@@ -900,6 +995,7 @@ change_tree = function(X, y, curr_tree, node_min_size,
     if(coef_hyperprior %in% c("univariate_normal_fixed_binomial",
                                "univariate_normal_betabinomial_onetheta",
                                "univariate_normal_betabinomial_theta_j",
+                              "univariate_normal_betabinomial_theta_j_sigma_j",
                               "simplex_fixed_beta_binomial_theta_j")  ){
 
       new_tree$count_for_update <- gamma_vec - gamma_changed_node
@@ -907,7 +1003,8 @@ change_tree = function(X, y, curr_tree, node_min_size,
     }
 
 
-    if(coef_hyperprior == "simplex_fixed_Dir_binomial_plusminus_theta_j"){
+    if(coef_hyperprior %in% c("simplex_fixed_Dir_binomial_plusminus_theta_j",
+                              "simplex_fixed_Dir_binomial_plusminus_theta_j_xi_j")){
       new_tree$count_for_update <- gamma_vec - 1*(coefs_changed_node >= 0)
     }
 
@@ -920,7 +1017,13 @@ change_tree = function(X, y, curr_tree, node_min_size,
     if(coef_norm_hyperprior == "varying"){
       new_tree$coef_for_sum_vec <- new_split_coefs - coefs_changed_node
     }
+    if(coef_hyperprior == "univariate_normal_betabinomial_theta_j_sigma_j"){
+      new_tree$coef_for_sumsq_vec <- gamma_vec*(new_split_coefs )^2 -  (coefs_changed_node >= 0)*(coefs_changed_node )^2
+    }
 
+    if(coef_hyperprior == "simplex_fixed_Dir_binomial_plusminus_theta_j_xi_j"){
+      new_tree$coef_for_logsum_vec <- log(abs(new_split_coefs )) -  log(abs(coefs_changed_node ))
+    }
 
     # Check for bad tree
     if(any(as.numeric(new_tree$tree_matrix[terminal_nodes, 'node_size']) <= node_min_size)) {
@@ -936,6 +1039,12 @@ change_tree = function(X, y, curr_tree, node_min_size,
       curr_tree$count_for_update <- rep(0, ncol(X))
       if(coef_norm_hyperprior == "varying"){
         new_tree$coef_for_sum_vec <- rep(0, ncol(X))
+      }
+      if(coef_hyperprior == "univariate_normal_betabinomial_theta_j_sigma_j"){
+        new_tree$coef_for_sumsq_vec <- rep(0, ncol(X))
+      }
+      if(coef_hyperprior == "simplex_fixed_Dir_binomial_plusminus_theta_j_xi_j"){
+        new_tree$coef_for_logsum_vec <- rep(0, ncol(X))
       }
       return(curr_tree)
     }

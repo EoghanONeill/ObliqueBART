@@ -25,30 +25,32 @@ make_01_norm <- function(x) {
 #' @useDynLib ObliqueBART, .registration = TRUE
 #' @export
 ObliqueBART <- function(x,
-                   y,
-                   sparse = TRUE,
-                   ntrees = 10,
-                   node_min_size = 5,
-                   alpha = 0.95,
-                   beta = 2,
-                   nu = 3,
-                   lambda = 0.1,
-                   mu_mu = 0,
-                   sigma2 = 1,
-                   sigma2_mu = 1,
-                   nburn = 1000,
-                   npost = 1000,
-                   nthin = 1,
-                   penalise_num_cov = TRUE,
-                   lambda_cov = 0.4,
-                   nu_cov = 2,
-                   coef_prior = "univariate_normal",        # Prior distribution for splitting coefficients
-                   coef_hyperprior = "none",
-                   coef_norm_hyperprior = "fixed", # fixed at zero, or varying
-                   threshold_prior = "discrete_uniform",
-                   p_bar = ceiling(ncol(x)/3),
-                   norm_sigma_init = "Zellner" # if a normal prior, initialize prior variaince with Zellner's prior or ridge?
-                   ) {
+                        y,
+                        sparse = TRUE,
+                        ntrees = 10,
+                        node_min_size = 5,
+                        alpha = 0.95,
+                        beta = 2,
+                        nu = 3,
+                        lambda = 0.1,
+                        mu_mu = 0,
+                        sigma2 = 1,
+                        sigma2_mu = 1,
+                        nburn = 1000,
+                        npost = 1000,
+                        nthin = 1,
+                        penalise_num_cov = TRUE,
+                        lambda_cov = 0.4,
+                        nu_cov = 2,
+                        coef_prior = "univariate_normal",        # Prior distribution for splitting coefficients
+                        coef_hyperprior = "none",
+                        coef_norm_hyperprior = "fixed", # fixed at zero, or varying
+                        threshold_prior = "discrete_uniform",
+                        p_bar = ceiling(ncol(x)/3),
+                        norm_sigma_init = "Zellner", # if a normal prior, initialize prior variaince with Zellner's prior or ridge?
+                        xi_prior = "Boojum", # only relevant if hyperprior for Dirichlet prior
+                        MH_propstep_xi = 0.15
+                        ) {
 
 
 
@@ -92,10 +94,12 @@ ObliqueBART <- function(x,
                               "univariate_normal_fixed_binomial",
                               "univariate_normal_betabinomial_onetheta",
                               "univariate_normal_betabinomial_theta_j",
+                              "univariate_normal_betabinomial_theta_j_sigma_j",
                               "multivariate_normal",
                               "simplex_fixed_beta_binomial_theta_j",
                               "simplex_fixed_Dir_trinomial_theta_j",
-                              "simplex_fixed_Dir_binomial_plusminus_theta_j"
+                              "simplex_fixed_Dir_binomial_plusminus_theta_j",
+                              "simplex_fixed_Dir_binomial_plusminus_theta_j_xi_j"
   ))){
     stop("Currently supported splitting coefficient hyperprior options are:
        none, univariate_normal, multivariate_normal")
@@ -109,7 +113,8 @@ ObliqueBART <- function(x,
                                   "univariate_normal",
                                   "univariate_normal_fixed_binomial",
                                   "univariate_normal_betabinomial_onetheta",
-                                  "univariate_normal_betabinomial_theta_j" ) )){
+                                  "univariate_normal_betabinomial_theta_j",
+                                  "univariate_normal_betabinomial_theta_j_sigma_j") )){
         stop("Currently only the univariate normal hyperprior is supported for a univariate normal coefficient prior")
       }
     }
@@ -122,12 +127,14 @@ ObliqueBART <- function(x,
       if(!(coef_hyperprior %in% c(#"none",
         "simplex_fixed_beta_binomial_theta_j",
         "simplex_fixed_Dir_trinomial_theta_j",
-        "simplex_fixed_Dir_binomial_plusminus_theta_j") )){
+        "simplex_fixed_Dir_binomial_plusminus_theta_j",
+        "simplex_fixed_Dir_binomial_plusminus_theta_j_xi_j") )){
         stop("Currently simplex hyperprior options are:
              none,
              simplex_fixed_beta_binomial_theta_j,
              simplex_fixed_Dir_trinomial_theta_j,
-             simplex_fixed_Dir_binomial_plusminus_theta_j")
+             simplex_fixed_Dir_binomial_plusminus_theta_j",
+             "simplex_fixed_Dir_binomial_plusminus_theta_j_xi_j")
       }
       # stop("Currently no hyperpriors supported for simplex coefficient prior")
       # if(coef_hyperprior != "multivariate_normal"){
@@ -243,6 +250,21 @@ ObliqueBART <- function(x,
     }
 
 
+    if(coef_hyperprior == "univariate_normal_betabinomial_theta_j_sigma_j"){
+      hyp_par_list$theta_vec <- rep(p_bar/p, p) # initializing, but will be learned
+      a_theta <- 1
+      b_theta <- 1
+
+      hyp_par_list$num_success_vec <- rep(0,p)
+      hyp_par_list$num_splits <- 0
+
+      nu_sig <- 3
+      tau_sig <- 1/nu_sig
+
+      hyp_par_list$coef_sumsq_vec <- rep(0,p)
+
+
+    }
 
     if(coef_norm_hyperprior == "varying"){
       hyp_par_list$coef_sum_vec <- rep(0,p)
@@ -313,6 +335,54 @@ ObliqueBART <- function(x,
       hyp_par_list$num_splits <- 0
 
     }
+
+
+
+    if(coef_hyperprior == "simplex_fixed_Dir_binomial_plusminus_theta_j_xi_j"){
+      hyp_par_list$theta_vec <- rep(1/2, p) # initializing, but will be learned
+      a_theta <- 1
+      b_theta <- 1
+
+      hyp_par_list$num_success_vec <- rep(0,p)
+      hyp_par_list$num_splits <- 0
+
+
+      # remove alpha ?
+      hyp_par_list$xi_vec <- rep(1/p, p)*hyp_par_list$alpha_simplex
+
+      hyp_par_list$coef_logsum_vec <- rep(0,p)
+
+
+
+      # hyperparameters for xi_vec hyperprior
+      if(xi_prior == "Boojum"){
+        # simplest Boojum prior settings are tau = 0 and v_j = p/alpha. Product of independent exponential distributions
+        # Boojum_rate_vec <-  rep(p, p)/hyp_par_list$alpha_simplex
+        Boojum_rate <-  p/hyp_par_list$alpha_simplex
+
+      }
+      if(xi_prior == "uniform"){
+        # uniform from 0 to infinity
+        # no parameter actually required for MH step
+      }
+      if(xi_prior == "gamma"){
+        # independent gamma priors
+        a_xi_gam <- 1
+        b_xi_gam <- p / hyp_par_list$alpha_simplex
+
+      }
+      if(xi_prior == "truncnorm"){
+        # independent gamma priors
+        mu_xi_tnorm <- 1
+        sig_xi_tnorm <- 3 # arbitrary
+
+      }
+
+
+
+
+    }
+
 
     if(coef_hyperprior == "simplex_fixed_Dir_trinomial_theta_j"){
       theta_1_bar <- rep(p_bar/(p), p) # initializing, but will be learned
@@ -455,8 +525,10 @@ ObliqueBART <- function(x,
           }
 
           if( coef_hyperprior %in% c( "univariate_normal_betabinomial_theta_j" ,
+                                      "univariate_normal_betabinomial_theta_j_sigma_j",
                                       "simplex_fixed_beta_binomial_theta_j",
-                                      "simplex_fixed_Dir_binomial_plusminus_theta_j") ){
+                                      "simplex_fixed_Dir_binomial_plusminus_theta_j",
+                                      "simplex_fixed_Dir_binomial_plusminus_theta_j_xi_j") ){
 
             if(curr_trees[[j]]$var_update == 1){
               if (type =='change'){
@@ -478,6 +550,34 @@ ObliqueBART <- function(x,
                 if(coef_norm_hyperprior == "varying"){
                   hyp_par_list$coef_sum_vec <- hyp_par_list$coef_sum_vec - curr_trees[[j]]$coef_for_sum_vec
                 }
+              }
+            }
+          }
+
+          if(coef_hyperprior == "simplex_fixed_Dir_binomial_plusminus_theta_j_xi_j"){
+            if(curr_trees[[j]]$var_update == 1){
+              if (type =='change'){
+                hyp_par_list$coef_logsum_vec <- hyp_par_list$coef_logsum_vec + curr_trees[[j]]$coef_for_logsum_vec
+              }
+              if (type=='grow'){
+                hyp_par_list$coef_logsum_vec <- hyp_par_list$coef_logsum_vec + curr_trees[[j]]$coef_for_logsum_vec
+              }
+              if (type=='prune'){
+                hyp_par_list$coef_logsum_vec <- hyp_par_list$coef_logsum_vec - curr_trees[[j]]$coef_for_logsum_vec
+              }
+            }
+          }
+
+          if(coef_hyperprior == "univariate_normal_betabinomial_theta_j_sigma_j"){
+            if(curr_trees[[j]]$var_update == 1){
+              if (type =='change'){
+                hyp_par_list$coef_sumsq_vec <- hyp_par_list$coef_sumsq_vec + curr_trees[[j]]$coef_for_sumsq_vec
+              }
+              if (type=='grow'){
+                hyp_par_list$coef_sumsq_vec <- hyp_par_list$coef_sumsq_vec + curr_trees[[j]]$coef_for_sumsq_vec
+              }
+              if (type=='prune'){
+                hyp_par_list$coef_sumsq_vec <- hyp_par_list$coef_sumsq_vec - curr_trees[[j]]$coef_for_sumsq_vec
               }
             }
           }
@@ -592,8 +692,10 @@ ObliqueBART <- function(x,
 
     }
     if( coef_hyperprior %in% c( "univariate_normal_betabinomial_theta_j" ,
+                                "univariate_normal_betabinomial_theta_j_sigma_j" ,
                                 "simplex_fixed_beta_binomial_theta_j",
-                                "simplex_fixed_Dir_binomial_plusminus_theta_j") ){
+                                "simplex_fixed_Dir_binomial_plusminus_theta_j",
+                                "simplex_fixed_Dir_binomial_plusminus_theta_j_xi_j") ){
       for(j in 1:p){
         hyp_par_list$theta_vec[j] <- rbeta(n = 1,
                                      shape1 = a_theta + hyp_par_list$num_success_vec[j] ,
@@ -629,6 +731,45 @@ ObliqueBART <- function(x,
       }
     }
 
+    if(coef_hyperprior  == "univariate_normal_betabinomial_theta_j_sigma_j"){
+      hyp_par_list$coef_sumsq_vec <- rep(0,p)
+
+
+
+      for(j in 1:p){
+        sigma2_beta_vec[j] <- 1/rgamma(n = 1,
+                                       shape = (nu_sig +  hyp_par_list$num_success_vec[j])/2,
+                                       rate = (nu_sig*tau_sig +
+                                                 hyp_par_list$coef_sumsq_vec[j] +
+                                                 2*hyp_par_list$beta_bar_vec[j]*hyp_par_list$coef_sum_vec[j] +
+                                                 hyp_par_list$num_success_vec[j]*(hyp_par_list$beta_bar_vec[j]^2))/2)
+
+        if(is.na(sigma2_beta_vec[j])){
+          print("nu_sig = ")
+          print(nu_sig)
+
+          print("hyp_par_list$coef_sum_vec[j] = ")
+          print(hyp_par_list$coef_sum_vec[j])
+
+          print("tau_sig = ")
+          print(tau_sig)
+
+
+          print("hyp_par_list$coef_sumsq_vec[j] = ")
+          print(hyp_par_list$coef_sumsq_vec[j])
+
+          print("j = ")
+          print(j)
+
+
+          stop("NA sigma2_beta_vec[j]")
+        }
+
+
+      }
+
+
+    }
 
 
     if(coef_hyperprior == "simplex_fixed_Dir_trinomial_theta_j"){
@@ -643,6 +784,89 @@ ObliqueBART <- function(x,
         hyp_par_list$theta_1_vec[j] <- temp_theta_vec[3]
       }
     }
+
+
+    if(coef_hyperprior == "simplex_fixed_Dir_binomial_plusminus_theta_j_xi_j"){
+
+
+      orig_xi <- hyp_par_list$xi_vec
+
+      prop_xi <- rep(NA,p)
+
+      for(j in 1:p){
+        if(orig_xi[j] - MH_propstep_xi <= 0){
+          prop_xi[j] <- runif(n = 1,
+                           min = 0,
+                           max = orig_xi[j] + MH_propstep_xi )
+        }else{
+          prop_xi[j] <- runif(n = 1,
+                              min = orig_xi[j] - MH_propstep_xi,
+                              max = orig_xi[j] + MH_propstep_xi )
+        }
+      }
+
+      templogbeta_orig <- sum(lgamma(orig_xi)) - lgamma(sum(orig_xi))
+      templogbeta_prop <- sum(lgamma(prop_xi)) - lgamma(sum(prop_xi))
+
+
+      log_MH_lik_orig <- -1*hyp_par_list$num_splits*templogbeta_orig  +  sum( (orig_xi - 1)*hyp_par_list$coef_logsum_vec )
+      log_MH_lik_prop <- -1*hyp_par_list$num_splits*templogbeta_prop  +  sum( (prop_xi - 1)*hyp_par_list$coef_logsum_vec )
+
+
+      # hyperparameters for xi_vec hyperprior
+      if(xi_prior == "Boojum"){
+        # simplest Boojum prior settings are tau = 0 and v_j = p/alpha. Product of independent exponential distributions
+        # Boojum_rate_vec <-  rep(p, p)/hyp_par_list$alpha_simplex
+
+        log_prior_ratio <- sum(dexp(prop_xi,  rate = Boojum_rate, log = TRUE ) -
+                                 dexp(orig_xi,  rate = Boojum_rate, log = TRUE ))
+
+      }
+      if(xi_prior == "uniform"){
+        # uniform from 0 to infinity
+        # no parameter actually required for MH step
+        log_prior_ratio <- 0
+      }
+      if(xi_prior == "gamma"){
+        # independent gamma priors
+        log_prior_ratio <- sum(dgamma(prop_xi, shape = a_xi_gam, rate = b_xi_gam, log = TRUE ) -
+          dgamma(orig_xi, shape = a_xi_gam, rate = b_xi_gam, log = TRUE ))
+      }
+      if(xi_prior == "truncnorm"){
+        # independent gamma priors
+        log_prior_ratio <- sum(dnorm(prop_xi, mean = mu_xi_tnorm, sd = sig_xi_tnorm, log = TRUE ) -
+          dnorm(orig_xi, mean = mu_xi_tnorm, sd = sig_xi_tnorm, log = TRUE ))
+      }
+
+      MH_accept_prob <- exp(log_prior_ratio + log_MH_lik_prop - log_MH_lik_orig)
+
+      if(is.na(MH_accept_prob)){
+        print("log_prior_ratio = ")
+        print(log_prior_ratio)
+
+        print("log_MH_lik_prop = ")
+        print(log_MH_lik_prop)
+
+        print("log_MH_lik_orig = ")
+        print(log_MH_lik_orig)
+
+        print("MH_accept_prob = ")
+        print(MH_accept_prob)
+
+        stop("NA MH_accept_prob")
+
+      }
+
+
+      # print("MH_accept_prob = ")
+      # print(MH_accept_prob)
+
+
+      if(MH_accept_prob > runif(1)){
+        hyp_par_list$xi_vec <- prop_xi
+      }
+
+    } # end xi MH step
 
 
 
