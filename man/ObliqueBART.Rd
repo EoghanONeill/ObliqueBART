@@ -30,7 +30,10 @@ ObliqueBART(
   p_bar = ceiling(ncol(x)/3),
   norm_sigma_init = "Zellner",
   xi_prior = "Boojum",
-  MH_propstep_xi = 0.15
+  MH_propstep_xi = 0.15,
+  norm_unit_sphere = FALSE,
+  split_mix = FALSE,
+  num_clust = 1
 )
 }
 \arguments{

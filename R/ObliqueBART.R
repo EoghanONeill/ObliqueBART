@@ -49,7 +49,10 @@ ObliqueBART <- function(x,
                         p_bar = ceiling(ncol(x)/3),
                         norm_sigma_init = "Zellner", # if a normal prior, initialize prior variaince with Zellner's prior or ridge?
                         xi_prior = "Boojum", # only relevant if hyperprior for Dirichlet prior
-                        MH_propstep_xi = 0.15
+                        MH_propstep_xi = 0.15,
+                        norm_unit_sphere = FALSE, # only relevant for normal distribution draws
+                        split_mix = FALSE, # splitting coefficients drawn from mixture distribution (mixture of vairable inclusion probabiltiies and coef values)
+                        num_clust = 1 # number of clusters in the finite mixture for splitting coefficients
                         ) {
 
 
@@ -407,6 +410,66 @@ ObliqueBART <- function(x,
 
 
 
+  hyp_par_list$split_mix <- split_mix
+  hyp_par_list$num_clust <- num_clust
+
+  if(split_mix){
+    # splits are drawn from a mixture distribution
+
+    if(coef_hyperprior %in% c("univariate_normal_betabinomial_theta_j","univariate_normal_betabinomial_theta_j_sigma_j") ){
+
+      hyp_par_list$theta_list <- list()
+      hyp_par_list$num_success_list <- list()
+      hyp_par_list$num_splits_list <- list()
+      hyp_par_list$coef_sumsq_list <- list()
+      hyp_par_list$coef_sum_list <- list()
+      hyp_par_list$sigma2_beta_list <- list()
+
+      hyp_par_list$beta_bar_list <- list()
+
+      for(c_ind in 1:num_clust){
+        hyp_par_list$theta_list[[c_ind]] <- rep(p_bar/p, p) # initializing, but will be learned
+        hyp_par_list$num_success_list[[c_ind]] <- rep(0,p)
+        hyp_par_list$num_splits_list[[c_ind]] <- 0
+
+        hyp_par_list$coef_sumsq_list[[c_ind]] <- rep(0,p)
+
+        hyp_par_list$coef_sum_list[[c_ind]] <- rep(0,p)
+        hyp_par_list$sigma2_beta_list[[c_ind]] <- sigma2_beta_vec # difficult to know how to set variance of hyperparameter means
+
+        hyp_par_list$beta_bar_list[[c_ind]] <- rep(0, p)
+
+      }
+
+
+
+      hyp_par_list$clust_counts <- rep(0, num_clust)
+      # initialize cluster probabilties
+      hyp_par_list$clust_probs <- rep(1/num_clust, num_clust)
+
+      # dirichlet prior on cluster probabilities
+      hyp_par_list$clust_dir_params <- rep(1, num_clust)
+
+      hyp_par_list$clust_ind_list <- list()
+
+      for(tree_ind in 1:ntrees){
+        hyp_par_list$clust_ind_list[[tree_ind]] <- rep(NA,1)
+      }
+
+    }
+
+
+  }
+
+
+
+
+
+
+
+
+
+
 
 
   # Set up a progress bar
@@ -448,7 +511,8 @@ ObliqueBART <- function(x,
                                      coef_hyperprior,   # hyperprior for splitting coefficients
                                      hyp_par_list,      # list of hyperparameters for splitting coefficients,
                                      threshold_prior,    # threshold prior
-                                     coef_norm_hyperprior # if normal hyperprior, fixed (i.e just vairable selection), or actually adapt mean of normal?
+                                     coef_norm_hyperprior, # if normal hyperprior, fixed (i.e just vairable selection), or actually adapt mean of normal?
+                                     norm_unit_sphere
                                      )
 
         # CURRENT TREE: compute the log of the marginalised likelihood + log of the tree prior
@@ -474,140 +538,301 @@ ObliqueBART <- function(x,
 
         if(a > runif(1)) {
           curr_trees[[j]] = new_trees[[j]]
-          # ADD IF STATEMENT FOR RELEVANT HYPERPRIOR
-          if(coef_hyperprior == "univariate_normal_betabinomial_onetheta"){
-            if(curr_trees[[j]]$var_update == 1){
-              if (type =='change'){
-                hyp_par_list$num_success <- hyp_par_list$num_success + sum(curr_trees[[j]]$count_for_update)
 
-                # print(" type=='change' ")
-                # print("hyp_par_list$num_success = ")
-                # print(hyp_par_list$num_success)
-                # print("hyp_par_list$num_splits = ")
-                # print(hyp_par_list$num_splits)
-                # print("curr_trees[[j]]$count_for_update = ")
-                # print(curr_trees[[j]]$count_for_update)
-                if(coef_norm_hyperprior == "varying"){
-                  hyp_par_list$coef_sum_vec <- hyp_par_list$coef_sum_vec + curr_trees[[j]]$coef_for_sum_vec
-                }
+
+        ### mix update counts and sums  #############
+          if(split_mix){
+            if(curr_trees[[j]]$var_update == 1){
+
+
+              if (type =='change'){
+                temp_nodeind <- new_trees[[j]]$node_updated
+                c_ind_old <- hyp_par_list$clust_ind_list[[j]][temp_nodeind]
+                c_ind_new <- new_trees[[j]]$c_ind_new
+                hyp_par_list$clust_ind_list[[j]][temp_nodeind] <-  c_ind_new
+
+                hyp_par_list$clust_counts[c_ind_old] <- hyp_par_list$clust_counts[c_ind_old] - 1
+                hyp_par_list$clust_counts[c_ind_new] <- hyp_par_list$clust_counts[c_ind_new] + 1
+
               }
               if (type=='grow'){
-                hyp_par_list$num_success <- hyp_par_list$num_success + sum(curr_trees[[j]]$count_for_update)
-                hyp_par_list$num_splits <- hyp_par_list$num_splits + 1
+                temp_nodeind <- new_trees[[j]]$node_updated
+                # c_ind_old <- hyp_par_list$clust_ind_list[[j]][temp_nodeind]
+                c_ind_new <- new_trees[[j]]$c_ind_new
+                hyp_par_list$clust_ind_list[[j]][temp_nodeind] <-  c_ind_new
 
-                # print(" type=='grow' ")
-                # print("hyp_par_list$num_success = ")
-                # print(hyp_par_list$num_success)
-                # print("hyp_par_list$num_splits = ")
-                # print(hyp_par_list$num_splits)
-                # print("curr_trees[[j]]$count_for_update = ")
-                # print(curr_trees[[j]]$count_for_update)
-                if(coef_norm_hyperprior == "varying"){
-                  hyp_par_list$coef_sum_vec <- hyp_par_list$coef_sum_vec + curr_trees[[j]]$coef_for_sum_vec
-                }
-              }
-              if (type=='prune'){
-                hyp_par_list$num_success <- hyp_par_list$num_success - sum(curr_trees[[j]]$count_for_update)
-                hyp_par_list$num_splits <- hyp_par_list$num_splits - 1
+                hyp_par_list$clust_ind_list[[j]] <- c(hyp_par_list$clust_ind_list[[j]],
+                                                      NA,NA)
 
-                # print(" type=='prune' ")
-                # print("hyp_par_list$num_success = ")
-                # print(hyp_par_list$num_success)
-                # print("hyp_par_list$num_splits = ")
-                # print(hyp_par_list$num_splits)
-                # print("curr_trees[[j]]$count_for_update = ")
-                # print(curr_trees[[j]]$count_for_update)
-                if(coef_norm_hyperprior == "varying"){
-                  hyp_par_list$coef_sum_vec <- hyp_par_list$coef_sum_vec - curr_trees[[j]]$coef_for_sum_vec
-                }
-              }
-            }
-          }
+                hyp_par_list$clust_counts[c_ind_new] <- hyp_par_list$clust_counts[c_ind_new] + 1
 
-          if( coef_hyperprior %in% c( "univariate_normal_betabinomial_theta_j" ,
-                                      "univariate_normal_betabinomial_theta_j_sigma_j",
-                                      "simplex_fixed_beta_binomial_theta_j",
-                                      "simplex_fixed_Dir_binomial_plusminus_theta_j",
-                                      "simplex_fixed_Dir_binomial_plusminus_theta_j_xi_j") ){
-
-            if(curr_trees[[j]]$var_update == 1){
-              if (type =='change'){
-                hyp_par_list$num_success_vec <- hyp_par_list$num_success_vec + curr_trees[[j]]$count_for_update
-                if(coef_norm_hyperprior == "varying"){
-                  hyp_par_list$coef_sum_vec <- hyp_par_list$coef_sum_vec + curr_trees[[j]]$coef_for_sum_vec
-                }
-              }
-              if (type=='grow'){
-                hyp_par_list$num_success_vec <- hyp_par_list$num_success_vec + curr_trees[[j]]$count_for_update
-                hyp_par_list$num_splits <- hyp_par_list$num_splits + 1
-                if(coef_norm_hyperprior == "varying"){
-                  hyp_par_list$coef_sum_vec <- hyp_par_list$coef_sum_vec + curr_trees[[j]]$coef_for_sum_vec
-                }
-              }
-              if (type=='prune'){
-                hyp_par_list$num_success_vec <- hyp_par_list$num_success_vec - curr_trees[[j]]$count_for_update
-                hyp_par_list$num_splits <- hyp_par_list$num_splits - 1
-                if(coef_norm_hyperprior == "varying"){
-                  hyp_par_list$coef_sum_vec <- hyp_par_list$coef_sum_vec - curr_trees[[j]]$coef_for_sum_vec
-                }
-              }
-            }
-          }
-
-          if(coef_hyperprior == "simplex_fixed_Dir_binomial_plusminus_theta_j_xi_j"){
-            if(curr_trees[[j]]$var_update == 1){
-              if (type =='change'){
-                hyp_par_list$coef_logsum_vec <- hyp_par_list$coef_logsum_vec + curr_trees[[j]]$coef_for_logsum_vec
-              }
-              if (type=='grow'){
-                hyp_par_list$coef_logsum_vec <- hyp_par_list$coef_logsum_vec + curr_trees[[j]]$coef_for_logsum_vec
-              }
-              if (type=='prune'){
-                hyp_par_list$coef_logsum_vec <- hyp_par_list$coef_logsum_vec - curr_trees[[j]]$coef_for_logsum_vec
-              }
-            }
-          }
-
-          if(coef_hyperprior == "univariate_normal_betabinomial_theta_j_sigma_j"){
-            if(curr_trees[[j]]$var_update == 1){
-              if (type =='change'){
-                hyp_par_list$coef_sumsq_vec <- hyp_par_list$coef_sumsq_vec + curr_trees[[j]]$coef_for_sumsq_vec
-              }
-              if (type=='grow'){
-                hyp_par_list$coef_sumsq_vec <- hyp_par_list$coef_sumsq_vec + curr_trees[[j]]$coef_for_sumsq_vec
-              }
-              if (type=='prune'){
-                hyp_par_list$coef_sumsq_vec <- hyp_par_list$coef_sumsq_vec - curr_trees[[j]]$coef_for_sumsq_vec
-              }
-            }
-          }
-
-
-          if(coef_hyperprior == "simplex_fixed_Dir_trinomial_theta_j"){
-            if(curr_trees[[j]]$var_update == 1){
-              if (type =='change'){
-                hyp_par_list$num_min1_vec <- hyp_par_list$num_min1_vec + curr_trees[[j]]$count_min1_for_update
-                hyp_par_list$num_0_vec <- hyp_par_list$num_0_vec + curr_trees[[j]]$count_0_for_update
-                hyp_par_list$num_1_vec <- hyp_par_list$num_1_vec + curr_trees[[j]]$count_1_for_update
-              }
-              if (type=='grow'){
-                hyp_par_list$num_min1_vec <- hyp_par_list$num_min1_vec + curr_trees[[j]]$count_min1_for_update
-                hyp_par_list$num_0_vec <- hyp_par_list$num_0_vec + curr_trees[[j]]$count_0_for_update
-                hyp_par_list$num_1_vec <- hyp_par_list$num_1_vec + curr_trees[[j]]$count_1_for_update
-                hyp_par_list$num_splits <- hyp_par_list$num_splits + 1
 
               }
               if (type=='prune'){
-                hyp_par_list$num_min1_vec <- hyp_par_list$num_min1_vec - curr_trees[[j]]$count_min1_for_update
-                hyp_par_list$num_0_vec <- hyp_par_list$num_0_vec - curr_trees[[j]]$count_0_for_update
-                hyp_par_list$num_1_vec <- hyp_par_list$num_1_vec - curr_trees[[j]]$count_1_for_update
-                hyp_par_list$num_splits <- hyp_par_list$num_splits - 1
+                par_ind <- new_trees[[j]]$parent_pruned
 
+                c_ind_par <- hyp_par_list$clust_ind_list[[j]][par_ind]
+                hyp_par_list$clust_ind_list[[j]][par_ind] <- NA
+                #remove pruned nodes
+                hyp_par_list$clust_ind_list[[j]] <- hyp_par_list$clust_ind_list[[j]][ - new_trees[[j]]$nodes_pruned ]
+
+                hyp_par_list$clust_counts[c_ind_par] <- hyp_par_list$clust_counts[c_ind_par] - 1
               }
             }
 
-          }
-        }
+
+
+            # ADD IF STATEMENT FOR RELEVANT HYPERPRIOR
+            if(coef_hyperprior == "univariate_normal_betabinomial_onetheta"){
+              if(curr_trees[[j]]$var_update == 1){
+                if (type =='change'){
+                  # hyp_par_list$num_success_list[[c_ind]] <- hyp_par_list$num_success_list[[c_ind]] + sum(curr_trees[[j]]$count_for_update)
+
+                  # must add to count for new cluster
+                  hyp_par_list$num_success_list[[c_ind_new]] <- hyp_par_list$num_success_list[[c_ind_new]] + sum(curr_trees[[j]]$count_for_update_new)
+
+                  # and take away from count for old cluster
+                  hyp_par_list$num_success_list[[c_ind_old]] <- hyp_par_list$num_success_list[[c_ind_old]] - sum(curr_trees[[j]]$count_for_update_old)
+
+
+                  if(coef_norm_hyperprior == "varying"){
+                    hyp_par_list$coef_sum_list[[c_ind_new]] <- hyp_par_list$coef_sum_list[[c_ind_new]] + curr_trees[[j]]$coef_for_sum_vec_new
+                    hyp_par_list$coef_sum_list[[c_ind_old]] <- hyp_par_list$coef_sum_list[[c_ind_old]] - curr_trees[[j]]$coef_for_sum_vec_old
+                  }
+                }
+                if (type=='grow'){
+                  hyp_par_list$num_success_list[[c_ind_new]] <- hyp_par_list$num_success_list[[c_ind_new]] + sum(curr_trees[[j]]$count_for_update)
+
+                  hyp_par_list$num_splits_list[[c_ind_new]] <- hyp_par_list$num_splits_list[[c_ind_new]] + 1
+
+                  if(coef_norm_hyperprior == "varying"){
+                    hyp_par_list$coef_sum_list[[c_ind_new]] <- hyp_par_list$coef_sum_list[[c_ind_new]] + curr_trees[[j]]$coef_for_sum_vec
+                  }
+                }
+                if (type=='prune'){
+                  # hyp_par_list$num_success <- hyp_par_list$num_success - sum(curr_trees[[j]]$count_for_update)
+                  # hyp_par_list$num_splits <- hyp_par_list$num_splits - 1
+
+                  hyp_par_list$num_success_list[[c_ind_par]] <- hyp_par_list$num_success_list[[c_ind_par]] -
+                    sum(curr_trees[[j]]$count_for_update)
+
+                  hyp_par_list$num_splits_list[[c_ind_par]] <- hyp_par_list$num_splits_list[[c_ind_par]] - 1
+
+                  if(coef_norm_hyperprior == "varying"){
+                    hyp_par_list$coef_sum_list[[c_ind_par]] <- hyp_par_list$coef_sum_list[[c_ind_par]] - curr_trees[[j]]$coef_for_sum_vec
+                  }
+                }
+              }
+            }
+
+            if( coef_hyperprior %in% c( "univariate_normal_betabinomial_theta_j" ,
+                                        "univariate_normal_betabinomial_theta_j_sigma_j",
+                                        "simplex_fixed_beta_binomial_theta_j",
+                                        "simplex_fixed_Dir_binomial_plusminus_theta_j",
+                                        "simplex_fixed_Dir_binomial_plusminus_theta_j_xi_j") ){
+
+              if(curr_trees[[j]]$var_update == 1){
+                if (type =='change'){
+                  # hyp_par_list$num_success_vec <- hyp_par_list$num_success_vec + curr_trees[[j]]$count_for_update
+                  #
+                  #must update vectors for new and old clusters
+                  hyp_par_list$num_success_list[[c_ind_new]] <- hyp_par_list$num_success_list[[c_ind_new]] + curr_trees[[j]]$count_for_update_new
+
+                  hyp_par_list$num_success_list[[c_ind_old]] <- hyp_par_list$num_success_list[[c_ind_old]] - curr_trees[[j]]$count_for_update_old
+
+
+                  if(coef_norm_hyperprior == "varying"){
+                    # hyp_par_list$coef_sum_vec <- hyp_par_list$coef_sum_vec + curr_trees[[j]]$coef_for_sum_vec
+                    hyp_par_list$coef_sum_list[[c_ind_new]] <- hyp_par_list$coef_sum_list[[c_ind_new]] + curr_trees[[j]]$coef_for_sum_vec_new
+                    hyp_par_list$coef_sum_list[[c_ind_old]] <- hyp_par_list$coef_sum_list[[c_ind_old]] - curr_trees[[j]]$coef_for_sum_vec_old
+                  }
+                }
+                if (type=='grow'){
+                  # hyp_par_list$num_success_vec <- hyp_par_list$num_success_vec + curr_trees[[j]]$count_for_update
+                  # hyp_par_list$num_splits <- hyp_par_list$num_splits + 1
+
+                  hyp_par_list$num_success_list[[c_ind_new]] <- hyp_par_list$num_success_list[[c_ind_new]] + curr_trees[[j]]$count_for_update
+                  hyp_par_list$num_splits_list[[c_ind_new]] <- hyp_par_list$num_splits_list[[c_ind_new]] + 1
+
+                  if(coef_norm_hyperprior == "varying"){
+                    hyp_par_list$coef_sum_list[[c_ind_new]] <- hyp_par_list$coef_sum_list[[c_ind_new]] + curr_trees[[j]]$coef_for_sum_vec
+
+                  }
+                }
+                if (type=='prune'){
+                  # hyp_par_list$num_success_vec <- hyp_par_list$num_success_vec - curr_trees[[j]]$count_for_update
+                  # hyp_par_list$num_splits <- hyp_par_list$num_splits - 1
+
+                  hyp_par_list$num_success_list[[c_ind_par]] <- hyp_par_list$num_success_list[[c_ind_par]] - curr_trees[[j]]$count_for_update
+                  hyp_par_list$num_splits_list[[c_ind_par]] <- hyp_par_list$num_splits_list[[c_ind_par]] - 1
+
+                  if(coef_norm_hyperprior == "varying"){
+                    hyp_par_list$coef_sum_list[[c_ind_par]] <- hyp_par_list$coef_sum_list[[c_ind_par]] - curr_trees[[j]]$coef_for_sum_vec
+                  }
+                }
+              }
+            }
+
+
+            if(coef_hyperprior == "univariate_normal_betabinomial_theta_j_sigma_j"){
+              if(curr_trees[[j]]$var_update == 1){
+                if (type =='change'){
+                  # hyp_par_list$coef_sumsq_vec <- hyp_par_list$coef_sumsq_vec + curr_trees[[j]]$coef_for_sumsq_vec
+                  hyp_par_list$coef_sumsq_list[[c_ind_new]] <- hyp_par_list$coef_sumsq_list[[c_ind_new]] + curr_trees[[j]]$coef_for_sumsq_vec_new
+                  hyp_par_list$coef_sumsq_list[[c_ind_old]] <- hyp_par_list$coef_sumsq_list[[c_ind_old]] - curr_trees[[j]]$coef_for_sumsq_vec_old
+                }
+                if (type=='grow'){
+                  # hyp_par_list$coef_sumsq_vec <- hyp_par_list$coef_sumsq_vec + curr_trees[[j]]$coef_for_sumsq_vec
+                  hyp_par_list$coef_sumsq_list[[c_ind_new]] <- hyp_par_list$coef_sumsq_list[[c_ind_new]] + curr_trees[[j]]$coef_for_sumsq_vec
+                }
+                if (type=='prune'){
+                  # hyp_par_list$coef_sumsq_vec <- hyp_par_list$coef_sumsq_vec - curr_trees[[j]]$coef_for_sumsq_vec
+                  hyp_par_list$coef_sumsq_list[[c_ind_par]] <- hyp_par_list$coef_sumsq_list[[c_ind_par]] - curr_trees[[j]]$coef_for_sumsq_vec
+
+                }
+              }
+            }
+
+          }else{ # end split mix TRUE
+
+            ### NOT mix update counts and sums  #############
+
+
+            # ADD IF STATEMENT FOR RELEVANT HYPERPRIOR
+            if(coef_hyperprior == "univariate_normal_betabinomial_onetheta"){
+              if(curr_trees[[j]]$var_update == 1){
+                if (type =='change'){
+                  hyp_par_list$num_success <- hyp_par_list$num_success + sum(curr_trees[[j]]$count_for_update)
+
+                  # print(" type=='change' ")
+                  # print("hyp_par_list$num_success = ")
+                  # print(hyp_par_list$num_success)
+                  # print("hyp_par_list$num_splits = ")
+                  # print(hyp_par_list$num_splits)
+                  # print("curr_trees[[j]]$count_for_update = ")
+                  # print(curr_trees[[j]]$count_for_update)
+                  if(coef_norm_hyperprior == "varying"){
+                    hyp_par_list$coef_sum_vec <- hyp_par_list$coef_sum_vec + curr_trees[[j]]$coef_for_sum_vec
+                  }
+                }
+                if (type=='grow'){
+                  hyp_par_list$num_success <- hyp_par_list$num_success + sum(curr_trees[[j]]$count_for_update)
+                  hyp_par_list$num_splits <- hyp_par_list$num_splits + 1
+
+                  # print(" type=='grow' ")
+                  # print("hyp_par_list$num_success = ")
+                  # print(hyp_par_list$num_success)
+                  # print("hyp_par_list$num_splits = ")
+                  # print(hyp_par_list$num_splits)
+                  # print("curr_trees[[j]]$count_for_update = ")
+                  # print(curr_trees[[j]]$count_for_update)
+                  if(coef_norm_hyperprior == "varying"){
+                    hyp_par_list$coef_sum_vec <- hyp_par_list$coef_sum_vec + curr_trees[[j]]$coef_for_sum_vec
+                  }
+                }
+                if (type=='prune'){
+                  hyp_par_list$num_success <- hyp_par_list$num_success - sum(curr_trees[[j]]$count_for_update)
+                  hyp_par_list$num_splits <- hyp_par_list$num_splits - 1
+
+                  # print(" type=='prune' ")
+                  # print("hyp_par_list$num_success = ")
+                  # print(hyp_par_list$num_success)
+                  # print("hyp_par_list$num_splits = ")
+                  # print(hyp_par_list$num_splits)
+                  # print("curr_trees[[j]]$count_for_update = ")
+                  # print(curr_trees[[j]]$count_for_update)
+                  if(coef_norm_hyperprior == "varying"){
+                    hyp_par_list$coef_sum_vec <- hyp_par_list$coef_sum_vec - curr_trees[[j]]$coef_for_sum_vec
+                  }
+                }
+              }
+            }
+
+            if( coef_hyperprior %in% c( "univariate_normal_betabinomial_theta_j" ,
+                                        "univariate_normal_betabinomial_theta_j_sigma_j",
+                                        "simplex_fixed_beta_binomial_theta_j",
+                                        "simplex_fixed_Dir_binomial_plusminus_theta_j",
+                                        "simplex_fixed_Dir_binomial_plusminus_theta_j_xi_j") ){
+
+              if(curr_trees[[j]]$var_update == 1){
+                if (type =='change'){
+                  hyp_par_list$num_success_vec <- hyp_par_list$num_success_vec + curr_trees[[j]]$count_for_update
+                  if(coef_norm_hyperprior == "varying"){
+                    hyp_par_list$coef_sum_vec <- hyp_par_list$coef_sum_vec + curr_trees[[j]]$coef_for_sum_vec
+                  }
+                }
+                if (type=='grow'){
+                  hyp_par_list$num_success_vec <- hyp_par_list$num_success_vec + curr_trees[[j]]$count_for_update
+                  hyp_par_list$num_splits <- hyp_par_list$num_splits + 1
+                  if(coef_norm_hyperprior == "varying"){
+                    hyp_par_list$coef_sum_vec <- hyp_par_list$coef_sum_vec + curr_trees[[j]]$coef_for_sum_vec
+                  }
+                }
+                if (type=='prune'){
+                  hyp_par_list$num_success_vec <- hyp_par_list$num_success_vec - curr_trees[[j]]$count_for_update
+                  hyp_par_list$num_splits <- hyp_par_list$num_splits - 1
+                  if(coef_norm_hyperprior == "varying"){
+                    hyp_par_list$coef_sum_vec <- hyp_par_list$coef_sum_vec - curr_trees[[j]]$coef_for_sum_vec
+                  }
+                }
+              }
+            }
+
+            if(coef_hyperprior == "simplex_fixed_Dir_binomial_plusminus_theta_j_xi_j"){
+              if(curr_trees[[j]]$var_update == 1){
+                if (type =='change'){
+                  hyp_par_list$coef_logsum_vec <- hyp_par_list$coef_logsum_vec + curr_trees[[j]]$coef_for_logsum_vec
+                }
+                if (type=='grow'){
+                  hyp_par_list$coef_logsum_vec <- hyp_par_list$coef_logsum_vec + curr_trees[[j]]$coef_for_logsum_vec
+                }
+                if (type=='prune'){
+                  hyp_par_list$coef_logsum_vec <- hyp_par_list$coef_logsum_vec - curr_trees[[j]]$coef_for_logsum_vec
+                }
+              }
+            }
+
+            if(coef_hyperprior == "univariate_normal_betabinomial_theta_j_sigma_j"){
+              if(curr_trees[[j]]$var_update == 1){
+                if (type =='change'){
+                  hyp_par_list$coef_sumsq_vec <- hyp_par_list$coef_sumsq_vec + curr_trees[[j]]$coef_for_sumsq_vec
+                }
+                if (type=='grow'){
+                  hyp_par_list$coef_sumsq_vec <- hyp_par_list$coef_sumsq_vec + curr_trees[[j]]$coef_for_sumsq_vec
+                }
+                if (type=='prune'){
+                  hyp_par_list$coef_sumsq_vec <- hyp_par_list$coef_sumsq_vec - curr_trees[[j]]$coef_for_sumsq_vec
+                }
+              }
+            }
+
+
+            if(coef_hyperprior == "simplex_fixed_Dir_trinomial_theta_j"){
+              if(curr_trees[[j]]$var_update == 1){
+                if (type =='change'){
+                  hyp_par_list$num_min1_vec <- hyp_par_list$num_min1_vec + curr_trees[[j]]$count_min1_for_update
+                  hyp_par_list$num_0_vec <- hyp_par_list$num_0_vec + curr_trees[[j]]$count_0_for_update
+                  hyp_par_list$num_1_vec <- hyp_par_list$num_1_vec + curr_trees[[j]]$count_1_for_update
+                }
+                if (type=='grow'){
+                  hyp_par_list$num_min1_vec <- hyp_par_list$num_min1_vec + curr_trees[[j]]$count_min1_for_update
+                  hyp_par_list$num_0_vec <- hyp_par_list$num_0_vec + curr_trees[[j]]$count_0_for_update
+                  hyp_par_list$num_1_vec <- hyp_par_list$num_1_vec + curr_trees[[j]]$count_1_for_update
+                  hyp_par_list$num_splits <- hyp_par_list$num_splits + 1
+
+                }
+                if (type=='prune'){
+                  hyp_par_list$num_min1_vec <- hyp_par_list$num_min1_vec - curr_trees[[j]]$count_min1_for_update
+                  hyp_par_list$num_0_vec <- hyp_par_list$num_0_vec - curr_trees[[j]]$count_0_for_update
+                  hyp_par_list$num_1_vec <- hyp_par_list$num_1_vec - curr_trees[[j]]$count_1_for_update
+                  hyp_par_list$num_splits <- hyp_par_list$num_splits - 1
+
+                }
+              }
+            }
+
+          } # end else for split mix FALSE
+        } # end if accept MH step code
 
 
 
@@ -668,206 +893,301 @@ ObliqueBART <- function(x,
     #   s = update_s(var_count, p, 1)
     # }
 
-    ##### draw hyperparameters ###########
+    ##### mix draw hyperparameters ###########
 
-    if(coef_hyperprior == "univariate_normal_betabinomial_onetheta"){
-      hyp_par_list$theta <- rbeta(n = 1,
-                                  shape1 = a_theta + hyp_par_list$num_success ,
-                                  shape2 = b_theta + p* hyp_par_list$num_splits - hyp_par_list$num_success )
+    if(split_mix){
 
-      if(is.na(hyp_par_list$theta)){
-        print("a_theta = ")
-        print(a_theta)
+      # draw new cluster probabiltiies
 
-        print("b_theta = ")
-        print(b_theta)
-
-        print("hyp_par_list$num_success = ")
-        print(hyp_par_list$num_success)
-
-        print("hyp_par_list$num_splits = ")
-        print(hyp_par_list$num_splits)
-
-      }
-
-    }
-    if( coef_hyperprior %in% c( "univariate_normal_betabinomial_theta_j" ,
-                                "univariate_normal_betabinomial_theta_j_sigma_j" ,
-                                "simplex_fixed_beta_binomial_theta_j",
-                                "simplex_fixed_Dir_binomial_plusminus_theta_j",
-                                "simplex_fixed_Dir_binomial_plusminus_theta_j_xi_j") ){
-      for(j in 1:p){
-        hyp_par_list$theta_vec[j] <- rbeta(n = 1,
-                                     shape1 = a_theta + hyp_par_list$num_success_vec[j] ,
-                                     shape2 = b_theta + hyp_par_list$num_splits - hyp_par_list$num_success[j] )
-      }
-    }
-
-
-    if(coef_norm_hyperprior == "varying"){
-      for(j in 1:p){
-        tempvar <- 1/( (1/sigma2_beta_bar[j]) + (hyp_par_list$num_success[j]/sigma2_beta_vec[j])   )
-        # print("sigma2_beta_bar[j] = ")
-        # print(sigma2_beta_bar[j])
-        hyp_par_list$beta_bar_vec[j] <- rnorm(1,
-                                              mean = tempvar* hyp_par_list$coef_sum_vec[j] /sigma2_beta_vec[j],
-                                              sd = sqrt(tempvar)
-                                              )
-
-        # print("hyp_par_list$coef_sum_vec[j] = ")
-        # print(hyp_par_list$coef_sum_vec[j])
-        # print("sigma2_beta_vec[j] = ")
-        # print(sigma2_beta_vec[j])
-        # print("tempvar[j] = ")
-        # print(tempvar[j])
-        # print("i = ")
-        # print(i)
-        # print("j = ")
-        # print(j)
-        # if(is.na(hyp_par_list$beta_bar_vec[j])){
-        #   stop("NA beta bar draw")
-        # }
-
-      }
-    }
-
-    if(coef_hyperprior  == "univariate_normal_betabinomial_theta_j_sigma_j"){
-      hyp_par_list$coef_sumsq_vec <- rep(0,p)
+      hyp_par_list$clust_probs <- t(rdirichlet(n = 1,
+                                               alpha = hyp_par_list$clust_dir_params  +
+                                                 hyp_par_list$clust_counts))
 
 
 
-      for(j in 1:p){
-        sigma2_beta_vec[j] <- 1/rgamma(n = 1,
-                                       shape = (nu_sig +  hyp_par_list$num_success_vec[j])/2,
-                                       rate = (nu_sig*tau_sig +
-                                                 hyp_par_list$coef_sumsq_vec[j] +
-                                                 2*hyp_par_list$beta_bar_vec[j]*hyp_par_list$coef_sum_vec[j] +
-                                                 hyp_par_list$num_success_vec[j]*(hyp_par_list$beta_bar_vec[j]^2))/2)
+      for(c_ind in 1:num_clust){
 
-        if(is.na(sigma2_beta_vec[j])){
-          print("nu_sig = ")
-          print(nu_sig)
+        if( coef_hyperprior %in% c( "univariate_normal_betabinomial_theta_j" ,
+                                    "univariate_normal_betabinomial_theta_j_sigma_j" ,
+                                    "simplex_fixed_beta_binomial_theta_j",
+                                    "simplex_fixed_Dir_binomial_plusminus_theta_j",
+                                    "simplex_fixed_Dir_binomial_plusminus_theta_j_xi_j") ){
+          for(j in 1:p){
+            hyp_par_list$theta_list[[c_ind]][j] <- rbeta(n = 1,
+                                               shape1 = a_theta + hyp_par_list$num_success_list[[c_ind]][j] ,
+                                               shape2 = b_theta + hyp_par_list$clust_counts[c_ind] - hyp_par_list$num_success_list[[c_ind]][j] )
 
-          print("hyp_par_list$coef_sum_vec[j] = ")
-          print(hyp_par_list$coef_sum_vec[j])
+            if(is.na(hyp_par_list$theta_list[[c_ind]][j])){
+              print("a_theta = ")
+              print(a_theta)
 
-          print("tau_sig = ")
-          print(tau_sig)
+              print("hyp_par_list$num_success_list[[c_ind]][j] = ")
+              print(hyp_par_list$num_success_list[[c_ind]][j])
 
+              print("hyp_par_list$num_splits_list[[c_ind]] = ")
+              print(hyp_par_list$num_splits_list[[c_ind]])
+              print("hyp_par_list$clust_counts[c_ind] = ")
+              print(hyp_par_list$clust_counts[c_ind])
 
-          print("hyp_par_list$coef_sumsq_vec[j] = ")
-          print(hyp_par_list$coef_sumsq_vec[j])
+              print("hyp_par_list$num_success_list[[c_ind]][j] = ")
+              print( hyp_par_list$num_success_list[[c_ind]][j] )
 
-          print("j = ")
-          print(j)
+              print("j = ")
+              print(j)
 
+              stop(" NA hyp_par_list$theta_list[[c_ind]][j] ")
+            }
 
-          stop("NA sigma2_beta_vec[j]")
+          }
         }
 
 
+        if(coef_norm_hyperprior == "varying"){
+          for(j in 1:p){
+            tempvar <- 1/( (1/sigma2_beta_bar[j]) + (hyp_par_list$num_success_list[[c_ind]][j]/hyp_par_list$sigma2_beta_list[[c_ind]][j])   )
+            # print("sigma2_beta_bar[j] = ")
+            # print(sigma2_beta_bar[j])
+            hyp_par_list$beta_bar_list[[c_ind]][j] <- rnorm(1,
+                                                  mean = tempvar* hyp_par_list$coef_sum_list[[c_ind]][j] /hyp_par_list$sigma2_beta_list[[c_ind]][j],
+                                                  sd = sqrt(tempvar)
+            )
+
+          }
+        }
+
+        if(coef_hyperprior  == "univariate_normal_betabinomial_theta_j_sigma_j"){
+
+          for(j in 1:p){
+            hyp_par_list$sigma2_beta_list[[c_ind]][j] <- 1/rgamma(n = 1,
+                                                                  shape = (nu_sig +  hyp_par_list$num_success_list[[c_ind]][j])/2,
+                                                                  rate = (nu_sig*tau_sig +
+                                                                            hyp_par_list$coef_sumsq_list[[c_ind]][j] -
+                                                                            2*hyp_par_list$beta_bar_list[[c_ind]][j]*hyp_par_list$coef_sum_list[[c_ind]][j] +
+                                                                            hyp_par_list$num_success_list[[c_ind]][j]*(hyp_par_list$beta_bar_list[[c_ind]][j]^2))/2)
+
+            if(is.na(hyp_par_list$sigma2_beta_list[[c_ind]][j])){
+              print("nu_sig = ")
+              print(nu_sig)
+
+              print("hyp_par_list$coef_sum_list[[c_ind]][j] = ")
+              print(hyp_par_list$coef_sum_list[[c_ind]][j])
+
+              print("tau_sig = ")
+              print(tau_sig)
+
+
+              print("hyp_par_list$coef_sumsq_list[[c_ind]][j] = ")
+              print(hyp_par_list$coef_sumsq_list[[c_ind]][j])
+
+              print("hyp_par_list$num_success_list[[c_ind]][j] = ")
+              print(hyp_par_list$num_success_list[[c_ind]][j])
+
+              print("hyp_par_list$beta_bar_list[[c_ind]][j]^2 = ")
+              print(hyp_par_list$beta_bar_list[[c_ind]][j]^2)
+
+
+              print("hyp_par_list$coef_sumsq_list[[c_ind]][j] -
+              2*hyp_par_list$beta_bar_list[[c_ind]][j]*hyp_par_list$coef_sum_list[[c_ind]][j] +
+                    hyp_par_list$num_success_list[[c_ind]][j]*(hyp_par_list$beta_bar_list[[c_ind]][j]^2) = ")
+
+              print(hyp_par_list$coef_sumsq_list[[c_ind]][j] -
+                      2*hyp_par_list$beta_bar_list[[c_ind]][j]*hyp_par_list$coef_sum_list[[c_ind]][j] +
+                      hyp_par_list$num_success_list[[c_ind]][j]*(hyp_par_list$beta_bar_list[[c_ind]][j]^2))
+
+              print("j = ")
+              print(j)
+
+
+              stop("NA hyp_par_list$sigma2_beta_list[[c_ind]][j]")
+            }
+          }
+        }
+
+
+
       }
 
 
-    }
+    }else{ ################  not mix draw hyperparameters ########################
 
+      if(coef_hyperprior == "univariate_normal_betabinomial_onetheta"){
+        hyp_par_list$theta <- rbeta(n = 1,
+                                    shape1 = a_theta + hyp_par_list$num_success ,
+                                    shape2 = b_theta + p* hyp_par_list$num_splits - hyp_par_list$num_success )
 
-    if(coef_hyperprior == "simplex_fixed_Dir_trinomial_theta_j"){
-      for(j in 1:p){
-        temp_theta_vec <- rdirichlet(n = 1,
-                                     alpha = c(theta_min1_bar +  hyp_par_list$num_min1_vec,
-                                               theta_0_bar +  hyp_par_list$num_0_vec,
-                                               theta_1_bar +  hyp_par_list$num_1_vec))
+        if(is.na(hyp_par_list$theta)){
+          print("a_theta = ")
+          print(a_theta)
 
-        hyp_par_list$theta_min1_vec[j] <- temp_theta_vec[1]
-        hyp_par_list$theta_0_vec[j] <- temp_theta_vec[2]
-        hyp_par_list$theta_1_vec[j] <- temp_theta_vec[3]
+          print("b_theta = ")
+          print(b_theta)
+
+          print("hyp_par_list$num_success = ")
+          print(hyp_par_list$num_success)
+
+          print("hyp_par_list$num_splits = ")
+          print(hyp_par_list$num_splits)
+
+        }
+
       }
-    }
-
-
-    if(coef_hyperprior == "simplex_fixed_Dir_binomial_plusminus_theta_j_xi_j"){
-
-
-      orig_xi <- hyp_par_list$xi_vec
-
-      prop_xi <- rep(NA,p)
-
-      for(j in 1:p){
-        if(orig_xi[j] - MH_propstep_xi <= 0){
-          prop_xi[j] <- runif(n = 1,
-                           min = 0,
-                           max = orig_xi[j] + MH_propstep_xi )
-        }else{
-          prop_xi[j] <- runif(n = 1,
-                              min = orig_xi[j] - MH_propstep_xi,
-                              max = orig_xi[j] + MH_propstep_xi )
+      if( coef_hyperprior %in% c( "univariate_normal_betabinomial_theta_j" ,
+                                  "univariate_normal_betabinomial_theta_j_sigma_j" ,
+                                  "simplex_fixed_beta_binomial_theta_j",
+                                  "simplex_fixed_Dir_binomial_plusminus_theta_j",
+                                  "simplex_fixed_Dir_binomial_plusminus_theta_j_xi_j") ){
+        for(j in 1:p){
+          hyp_par_list$theta_vec[j] <- rbeta(n = 1,
+                                       shape1 = a_theta + hyp_par_list$num_success_vec[j] ,
+                                       shape2 = b_theta + hyp_par_list$num_splits - hyp_par_list$num_success[j] )
         }
       }
 
-      templogbeta_orig <- sum(lgamma(orig_xi)) - lgamma(sum(orig_xi))
-      templogbeta_prop <- sum(lgamma(prop_xi)) - lgamma(sum(prop_xi))
 
+      if(coef_norm_hyperprior == "varying"){
+        for(j in 1:p){
+          tempvar <- 1/( (1/sigma2_beta_bar[j]) + (hyp_par_list$num_success[j]/sigma2_beta_vec[j])   )
+          # print("sigma2_beta_bar[j] = ")
+          # print(sigma2_beta_bar[j])
+          hyp_par_list$beta_bar_vec[j] <- rnorm(1,
+                                                mean = tempvar* hyp_par_list$coef_sum_vec[j] /sigma2_beta_vec[j],
+                                                sd = sqrt(tempvar)
+                                                )
 
-      log_MH_lik_orig <- -1*hyp_par_list$num_splits*templogbeta_orig  +  sum( (orig_xi - 1)*hyp_par_list$coef_logsum_vec )
-      log_MH_lik_prop <- -1*hyp_par_list$num_splits*templogbeta_prop  +  sum( (prop_xi - 1)*hyp_par_list$coef_logsum_vec )
-
-
-      # hyperparameters for xi_vec hyperprior
-      if(xi_prior == "Boojum"){
-        # simplest Boojum prior settings are tau = 0 and v_j = p/alpha. Product of independent exponential distributions
-        # Boojum_rate_vec <-  rep(p, p)/hyp_par_list$alpha_simplex
-
-        log_prior_ratio <- sum(dexp(prop_xi,  rate = Boojum_rate, log = TRUE ) -
-                                 dexp(orig_xi,  rate = Boojum_rate, log = TRUE ))
-
-      }
-      if(xi_prior == "uniform"){
-        # uniform from 0 to infinity
-        # no parameter actually required for MH step
-        log_prior_ratio <- 0
-      }
-      if(xi_prior == "gamma"){
-        # independent gamma priors
-        log_prior_ratio <- sum(dgamma(prop_xi, shape = a_xi_gam, rate = b_xi_gam, log = TRUE ) -
-          dgamma(orig_xi, shape = a_xi_gam, rate = b_xi_gam, log = TRUE ))
-      }
-      if(xi_prior == "truncnorm"){
-        # independent gamma priors
-        log_prior_ratio <- sum(dnorm(prop_xi, mean = mu_xi_tnorm, sd = sig_xi_tnorm, log = TRUE ) -
-          dnorm(orig_xi, mean = mu_xi_tnorm, sd = sig_xi_tnorm, log = TRUE ))
+        }
       }
 
-      MH_accept_prob <- exp(log_prior_ratio + log_MH_lik_prop - log_MH_lik_orig)
+      if(coef_hyperprior  == "univariate_normal_betabinomial_theta_j_sigma_j"){
 
-      if(is.na(MH_accept_prob)){
-        print("log_prior_ratio = ")
-        print(log_prior_ratio)
+        for(j in 1:p){
+          sigma2_beta_vec[j] <- 1/rgamma(n = 1,
+                                         shape = (nu_sig +  hyp_par_list$num_success_vec[j])/2,
+                                         rate = (nu_sig*tau_sig +
+                                                   hyp_par_list$coef_sumsq_vec[j] -
+                                                   2*hyp_par_list$beta_bar_vec[j]*hyp_par_list$coef_sum_vec[j] +
+                                                   hyp_par_list$num_success_vec[j]*(hyp_par_list$beta_bar_vec[j]^2))/2)
 
-        print("log_MH_lik_prop = ")
-        print(log_MH_lik_prop)
+          if(is.na(sigma2_beta_vec[j])){
+            print("nu_sig = ")
+            print(nu_sig)
 
-        print("log_MH_lik_orig = ")
-        print(log_MH_lik_orig)
+            print("hyp_par_list$coef_sum_vec[j] = ")
+            print(hyp_par_list$coef_sum_vec[j])
 
-        print("MH_accept_prob = ")
-        print(MH_accept_prob)
+            print("tau_sig = ")
+            print(tau_sig)
 
-        stop("NA MH_accept_prob")
 
+            print("hyp_par_list$coef_sumsq_vec[j] = ")
+            print(hyp_par_list$coef_sumsq_vec[j])
+
+            print("j = ")
+            print(j)
+
+
+            stop("NA sigma2_beta_vec[j]")
+          }
+        }
       }
 
 
-      # print("MH_accept_prob = ")
-      # print(MH_accept_prob)
+      if(coef_hyperprior == "simplex_fixed_Dir_trinomial_theta_j"){
+        for(j in 1:p){
+          temp_theta_vec <- rdirichlet(n = 1,
+                                       alpha = c(theta_min1_bar +  hyp_par_list$num_min1_vec,
+                                                 theta_0_bar +  hyp_par_list$num_0_vec,
+                                                 theta_1_bar +  hyp_par_list$num_1_vec))
 
-
-      if(MH_accept_prob > runif(1)){
-        hyp_par_list$xi_vec <- prop_xi
+          hyp_par_list$theta_min1_vec[j] <- temp_theta_vec[1]
+          hyp_par_list$theta_0_vec[j] <- temp_theta_vec[2]
+          hyp_par_list$theta_1_vec[j] <- temp_theta_vec[3]
+        }
       }
 
-    } # end xi MH step
 
+      if(coef_hyperprior == "simplex_fixed_Dir_binomial_plusminus_theta_j_xi_j"){
+
+
+        orig_xi <- hyp_par_list$xi_vec
+
+        prop_xi <- rep(NA,p)
+
+        for(j in 1:p){
+          if(orig_xi[j] - MH_propstep_xi <= 0){
+            prop_xi[j] <- runif(n = 1,
+                             min = 0,
+                             max = orig_xi[j] + MH_propstep_xi )
+          }else{
+            prop_xi[j] <- runif(n = 1,
+                                min = orig_xi[j] - MH_propstep_xi,
+                                max = orig_xi[j] + MH_propstep_xi )
+          }
+        }
+
+        templogbeta_orig <- sum(lgamma(orig_xi)) - lgamma(sum(orig_xi))
+        templogbeta_prop <- sum(lgamma(prop_xi)) - lgamma(sum(prop_xi))
+
+
+        log_MH_lik_orig <- -1*hyp_par_list$num_splits*templogbeta_orig  +  sum( (orig_xi - 1)*hyp_par_list$coef_logsum_vec )
+        log_MH_lik_prop <- -1*hyp_par_list$num_splits*templogbeta_prop  +  sum( (prop_xi - 1)*hyp_par_list$coef_logsum_vec )
+
+
+        # hyperparameters for xi_vec hyperprior
+        if(xi_prior == "Boojum"){
+          # simplest Boojum prior settings are tau = 0 and v_j = p/alpha. Product of independent exponential distributions
+          # Boojum_rate_vec <-  rep(p, p)/hyp_par_list$alpha_simplex
+
+          log_prior_ratio <- sum(dexp(prop_xi,  rate = Boojum_rate, log = TRUE ) -
+                                   dexp(orig_xi,  rate = Boojum_rate, log = TRUE ))
+
+        }
+        if(xi_prior == "uniform"){
+          # uniform from 0 to infinity
+          # no parameter actually required for MH step
+          log_prior_ratio <- 0
+        }
+        if(xi_prior == "gamma"){
+          # independent gamma priors
+          log_prior_ratio <- sum(dgamma(prop_xi, shape = a_xi_gam, rate = b_xi_gam, log = TRUE ) -
+            dgamma(orig_xi, shape = a_xi_gam, rate = b_xi_gam, log = TRUE ))
+        }
+        if(xi_prior == "truncnorm"){
+          # independent gamma priors
+          log_prior_ratio <- sum(dnorm(prop_xi, mean = mu_xi_tnorm, sd = sig_xi_tnorm, log = TRUE ) -
+            dnorm(orig_xi, mean = mu_xi_tnorm, sd = sig_xi_tnorm, log = TRUE ))
+        }
+
+        MH_accept_prob <- exp(log_prior_ratio + log_MH_lik_prop - log_MH_lik_orig)
+
+        if(is.na(MH_accept_prob)){
+          print("log_prior_ratio = ")
+          print(log_prior_ratio)
+
+          print("log_MH_lik_prop = ")
+          print(log_MH_lik_prop)
+
+          print("log_MH_lik_orig = ")
+          print(log_MH_lik_orig)
+
+          print("MH_accept_prob = ")
+          print(MH_accept_prob)
+
+          stop("NA MH_accept_prob")
+
+        }
+
+
+        # print("MH_accept_prob = ")
+        # print(MH_accept_prob)
+
+
+        if(MH_accept_prob > runif(1)){
+          hyp_par_list$xi_vec <- prop_xi
+        }
+
+      } # end xi MH step
+
+    } # end else statement (split mix FALSE)
 
 
   } # End iterations loop
