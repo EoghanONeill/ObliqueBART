@@ -36,10 +36,12 @@ ObliqueBART <- function(x,
                         mu_mu = 0,
                         sigma2 = 1,
                         sigma2_mu = 1,
+                        k = 2,
+                        sigquant = .90,
                         nburn = 1000,
                         npost = 1000,
                         nthin = 1,
-                        penalise_num_cov = TRUE,
+                        penalise_num_cov = FALSE,
                         lambda_cov = 0.4,
                         nu_cov = 2,
                         coef_prior = "univariate_normal",        # Prior distribution for splitting coefficients
@@ -171,6 +173,22 @@ ObliqueBART <- function(x,
   p = ncol(x)
   s = rep(1/p, p)
 
+
+  # tau=(max(y.train)-min(y.train))/(2*k*sqrt(ntree))
+
+  sigma2_mu <- (max(y_scale)-min(y_scale))/((2 * k * sqrt(ntrees))^2)
+
+  # if(is.na(sigest)) {
+    if(p < n) {
+      df = data.frame(x,y_scale)
+      lmf = lm(y_scale~.,df)
+      sigest = summary(lmf)$sigma
+    } else {
+      sigest = sd(y_scale)
+    }
+  # }
+  qchi = qchisq(1.0-sigquant,nu)
+  lambda = (sigest*sigest*qchi)/nu #lambda parameter for sigma prior
 
   ##### scale covariates ############
 
