@@ -23,4 +23,5 @@ Imports:
     stats, 
     MCMCpack, 
     truncnorm,
-    collapse
+    collapse,
+    dqrng

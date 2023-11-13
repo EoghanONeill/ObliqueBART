@@ -14,7 +14,8 @@ make_01_norm <- function(x) {
 #' @importFrom stats 'rgamma' 'runif' 'dnorm' 'sd' 'rnorm' 'pnorm' 'aggregate' 'contrasts' 'model.matrix'
 #' @importFrom MCMCpack 'rdirichlet'
 #' @importFrom truncnorm 'rtruncnorm'
-#' @importFrom collapse fmean fsum
+#' @importFrom collapse 'fmean' 'fsum'
+#' @importFrom dqrng 'dqsample' 'dqsample.int'
 #' @param x Training covariate matrix. Rows correspond to observations, columns correspond to covariates used in splitting rules.
 #' @param y Training outcome vector.
 #' @param coef_prior Prior distribution for splitting coefficients: "univariate_normal", "multivariate_normal", or "simplex"
@@ -148,6 +149,10 @@ ObliqueBART <- function(x,
       # }
     }
   }
+
+if( (coef_hyperprior == "univariate_normal_betabinomial_theta_j_sigma_j" ) & (coef_norm_hyperprior != "varying") ){
+  stop(" If coef_hyperprior = univariate_normal_betabinomial_theta_j_sigma_j, then must set coef_norm_hyperprior != varying " )
+}
 
 
   # Extract control parameters

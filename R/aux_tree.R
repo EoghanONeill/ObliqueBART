@@ -28,28 +28,23 @@ fill_tree_details = function(curr_tree, X) {
   for(i in 2:nrow(tree_matrix)) {
 
     # Get the parent
-    curr_parent = as.numeric(tree_matrix[i,'parent'])
+    curr_parent = tree_matrix[i,'parent']
 
-    # Find the split variable and value of the parent
-    # split_var = as.numeric(tree_matrix[curr_parent,'split_variable'])
-    split_coefs = as.numeric(tree_matrix[curr_parent,8:(ncol(tree_matrix))])
-    split_val = as.numeric(tree_matrix[curr_parent, 'split_value'])
+
 
     # print("split_val= ")
     # print(split_val)
 
-    if(is.na(split_val)){
-      stop("split_val == NA")
-    }
-    if(any(is.na(split_coefs))){
-      stop("split_coefs contains NA")
-    }
+
 
     # Find whether it's a left or right terminal node
-    left_or_right = ifelse(tree_matrix[curr_parent,'child_left'] == i,
-                           'left', 'right')
+    # left_or_right <- "right"
+    #
+    # left_or_right = ifelse(tree_matrix[curr_parent,'child_left'] == i,
+    #                        'left', 'right')
 
-    if(left_or_right == 'left') {
+    # if(left_or_right == 'left') {
+    if(tree_matrix[curr_parent,'child_left'] == i) {
       # If left use less than condition
       # new_tree_matrix[i,'node_size'] = sum(X[node_indices == curr_parent,split_var] < split_val)
       # node_indices[node_indices == curr_parent][X[node_indices == curr_parent,split_var] < split_val] = i
@@ -59,12 +54,26 @@ fill_tree_details = function(curr_tree, X) {
       # print("split_coefs = " )
       # print(split_coefs)
 
-      new_tree_matrix[i,'node_size'] <- sum( ( X[node_indices == curr_parent,] %*% split_coefs )   < split_val )
+      # Find the split variable and value of the parent
+      # split_var = as.numeric(tree_matrix[curr_parent,'split_variable'])
+      split_coefs = tree_matrix[curr_parent,8:(ncol(tree_matrix))]
+      split_val = tree_matrix[curr_parent, 'split_value']
+
+      # if(is.na(split_val)){
+      #   stop("split_val == NA")
+      # }
+      # if(any(is.na(split_coefs))){
+      #   stop("split_coefs contains NA")
+      # }
+
+      tempinds <- node_indices == curr_parent
+      left_binary_vec <- ( X[tempinds,] %*% split_coefs )   < split_val
+      new_tree_matrix[i,'node_size'] <- sum( left_binary_vec )
 
       # print("new_tree_matrix[i,'node_size'] = ")
       # print(new_tree_matrix[i,'node_size'])
 
-      node_indices[node_indices == curr_parent][ (X[node_indices == curr_parent,] %*% split_coefs ) < split_val ] <-  i
+      node_indices[tempinds][ left_binary_vec ] <-  i
 
 
 
@@ -83,9 +92,12 @@ fill_tree_details = function(curr_tree, X) {
       #
       # node_indices[node_indices == curr_parent][  !( ( temp_vals ) <  split_val ) |(temp_vals == split_val) ] <- i
 
+      tempinds <- node_indices == curr_parent
+
+
       # right node always after left, so if not filled in as the left node, remaining indices are all the right node
-      new_tree_matrix[i,'node_size'] <- sum(node_indices == curr_parent)
-      node_indices[node_indices == curr_parent] <- i
+      new_tree_matrix[i,'node_size'] <- sum(tempinds)
+      node_indices[tempinds] <- i
 
 
 

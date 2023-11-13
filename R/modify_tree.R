@@ -161,8 +161,11 @@ grow_tree = function(X, y, curr_tree, node_min_size, s,
 
         # first sample the cluster
 
-        c_ind <- sample(1:hyp_par_list$num_clust, size = 1, replace = FALSE,
-                            prob = hyp_par_list$clust_probs )
+        # c_ind <- sample(1:hyp_par_list$num_clust, size = 1, replace = FALSE,
+        #                     prob = hyp_par_list$clust_probs )
+
+        c_ind <- sample(hyp_par_list$num_clust, size = 1, replace = FALSE,
+                        prob = hyp_par_list$clust_probs )
 
 
         gamma_vec <- rep(0, ncol(X))
@@ -409,41 +412,42 @@ grow_tree = function(X, y, curr_tree, node_min_size, s,
       # print(X[new_tree$node_indices == node_to_split, ])
 
 
-      lincomb_values <- unique(X[new_tree$node_indices == node_to_split, ] %*% split_coefs)
+      lincomb_values <- unique(as.vector(X[new_tree$node_indices == node_to_split, ] %*% split_coefs))
     }
 
     if(threshold_prior == "discrete_uniform"){
       # Alternatively follow BARTMachine and choose a split value using sample on the internal values of the available
-      available_values = sort(lincomb_values)
+      # available_values = sort(lincomb_values, na.last = TRUE)
 
-      if(length(available_values) == 0){
-        print(" lincomb_values = ")
-        print(lincomb_values)
-        print(" X[new_tree$node_indices == node_to_split, ] = ")
-        print(X[new_tree$node_indices == node_to_split, ])
+      # if(length(available_values) == 0){
+      #   print(" lincomb_values = ")
+      #   print(lincomb_values)
+      #   print(" X[new_tree$node_indices == node_to_split, ] = ")
+      #   print(X[new_tree$node_indices == node_to_split, ])
+      #
+      #   print(" split_coefs = ")
+      #   print(split_coefs)
+      #
+      #   print("hyp_par_list$beta_bar_vec = ")
+      #   print(hyp_par_list$beta_bar_vec)
+      #
+      #   print("hyp_par_list$sigma2_beta_vec = ")
+      #   print(hyp_par_list$sigma2_beta_vec)
+      #
+      #   stop("Line 302 (length(available_values) == 0")
+      #
+      # }
 
-        print(" split_coefs = ")
-        print(split_coefs)
 
-        print("hyp_par_list$beta_bar_vec = ")
-        print(hyp_par_list$beta_bar_vec)
-
-        print("hyp_par_list$sigma2_beta_vec = ")
-        print(hyp_par_list$sigma2_beta_vec)
-
-        stop("Line 302 (length(available_values) == 0")
-
-      }
-
-
-      if(length(available_values) == 1){
-        split_value = available_values[1]
-      } else if (length(available_values) == 2){
-        split_value = available_values[2]
+      if(length(lincomb_values) == 1){
+        split_value = lincomb_values[1]
+      } else if (length(lincomb_values) == 2){
+        split_value = max(lincomb_values)
       }  else {
         # split_value = sample(available_values[-c(1,length(available_values))], 1)
         # split_value = resample(available_values[-c(1,length(available_values))])
-        split_value = sample(x = available_values[2:(length(available_values)-1)],size = 1)
+        # split_value = sample(x = available_values[2:(length(available_values)-1)],size = 1)
+        split_value = sample(x = lincomb_values[-c(which.min(lincomb_values), which.max(lincomb_values))],size = 1)
 
       }
     }
@@ -691,7 +695,7 @@ prune_tree = function(X, y, curr_tree,
         # Find both the children of this node
         curr_children = which(as.numeric(new_tree$tree_matrix[,'parent']) == curr_parent)
         # Input these children back into the parent
-        new_tree$tree_matrix[curr_parent,c('child_left','child_right')] = sort(curr_children)
+        new_tree$tree_matrix[curr_parent,c('child_left','child_right')] = sort(curr_children, na.last = TRUE)
       } # End for loop of correcting parents and children
     } # End if statement to fill in tree details
 
@@ -839,9 +843,10 @@ change_tree = function(X, y, curr_tree, node_min_size,
                                 "univariate_normal_betabinomial_theta_j_sigma_j")){
 
 
-        c_ind <- sample(1:hyp_par_list$num_clust, size = 1, replace = FALSE,
+        # c_ind <- sample(1:hyp_par_list$num_clust, size = 1, replace = FALSE,
+        #                 prob = hyp_par_list$clust_probs )
+        c_ind <- sample.int(hyp_par_list$num_clust, size = 1, replace = FALSE,
                         prob = hyp_par_list$clust_probs )
-
 
         gamma_vec <- rep(0, ncol(X))
         while(all(gamma_vec ==0)){ # cannot propose a split without nonzero coefficients
@@ -1057,26 +1062,27 @@ change_tree = function(X, y, curr_tree, node_min_size,
 
     if(threshold_prior != "continuous_minus_plus_1"){
       # calculate all linear combination values in the relevant node
-      lincomb_values <- unique(X[ use_node_indices, ] %*% new_split_coefs)
+      lincomb_values <- unique(as.vector(X[ use_node_indices, ] %*% new_split_coefs))
     }
 
     if(threshold_prior == "discrete_uniform"){
       # Alternatively follow BARTMachine and choose a split value using sample on the internal values of the available
-      available_values = sort(lincomb_values)
+      # available_values = sort(lincomb_values, na.last = TRUE)
 
 
-      if(length(available_values) == 0){
-        stop("length(available_values) == 0")
-      }
+      # if(length(available_values) == 0){
+      #   stop("length(available_values) == 0")
+      # }
 
-      if(length(available_values) == 1){
-        new_split_value = available_values[1]
-      } else if (length(available_values) == 2){
-        new_split_value = available_values[2]
+      if(length(lincomb_values) == 1){
+        new_split_value = lincomb_values[1]
+      } else if (length(lincomb_values) == 2){
+        new_split_value = max(lincomb_values) #available_values[2]
       }  else {
         # new_split_value = sample(available_values[-c(1,length(available_values))], 1)
         # new_split_value = resample(available_values[-c(1,length(available_values))])
-        new_split_value = sample(x = available_values[2:(length(available_values)-1)],size = 1)
+        # new_split_value = sample(x = available_values[2:(length(available_values)-1)],size = 1)
+        new_split_value = sample(x = lincomb_values[-c(which.min(lincomb_values), which.max(lincomb_values))],size = 1)
 
       }
     }
@@ -1242,6 +1248,7 @@ swap_tree = function(X, y, curr_tree, node_min_size) {
     new_tree = curr_tree
 
     # Pick a random pair
+    # nodes_to_swap = sample(1:nrow(pairs_of_internal), 1)
     nodes_to_swap = sample(1:nrow(pairs_of_internal), 1)
 
     # Get the split variables and values for this pair

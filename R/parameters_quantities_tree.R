@@ -20,10 +20,11 @@ tree_full_conditional = function(tree, R, sigma2, sigma2_mu) {
   # Need to calculate log complete conditional, involves a sum over terminal nodes
 
   # First find which rows are terminal nodes
-  which_terminal = which(tree$tree_matrix[,'terminal'] == 1)
+  # which_terminal = which(tree$tree_matrix[,'terminal'] == 1)
 
   # Get node sizes for each terminal node
-  nj = tree$tree_matrix[which_terminal,'node_size']
+  # nj = tree$tree_matrix[which_terminal,'node_size']
+  nj = tree$tree_matrix[tree$tree_matrix[,'terminal'] == 1,'node_size']
 
   # Get sum of residuals and sum of residuals squared within each terminal node
   # sumRsq_j = aggregate(R, by = list(tree$node_indices), function(x) sum(x^2))[,2]
