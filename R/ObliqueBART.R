@@ -516,7 +516,8 @@ ObliqueBART <- function(x,
         current_partial_residuals = y_scale - y_hat + tree_fits_store[,j]
 
         # Propose a new tree via grow/change/prune/swap
-        type = sample_move(curr_trees[[j]], i, nburn)
+        type = sample_move(curr_trees[[j]], i, 100 #nburn
+                           )
 
         # Generate a new tree based on the current
         new_trees[[j]] = update_tree(y = y_scale,
