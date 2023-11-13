@@ -22,4 +22,5 @@ Imports:
     statmod, 
     stats, 
     MCMCpack, 
-    truncnorm
+    truncnorm,
+    collapse
