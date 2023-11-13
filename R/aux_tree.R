@@ -68,6 +68,7 @@ fill_tree_details = function(curr_tree, X) {
 
       tempinds <- node_indices == curr_parent
       left_binary_vec <- ( X[tempinds,] %*% split_coefs )   < split_val
+      # left_binary_vec <- ( fsubset(X, node_indices == curr_parent) %*% split_coefs )   < split_val
       new_tree_matrix[i,'node_size'] <- sum( left_binary_vec )
 
       # print("new_tree_matrix[i,'node_size'] = ")

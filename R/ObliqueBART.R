@@ -14,7 +14,7 @@ make_01_norm <- function(x) {
 #' @importFrom stats 'rgamma' 'runif' 'dnorm' 'sd' 'rnorm' 'pnorm' 'aggregate' 'contrasts' 'model.matrix'
 #' @importFrom MCMCpack 'rdirichlet'
 #' @importFrom truncnorm 'rtruncnorm'
-#' @importFrom collapse 'fmean' 'fsum'
+#' @import collapse
 #' @importFrom dqrng 'dqsample' 'dqsample.int'
 #' @param x Training covariate matrix. Rows correspond to observations, columns correspond to covariates used in splitting rules.
 #' @param y Training outcome vector.
