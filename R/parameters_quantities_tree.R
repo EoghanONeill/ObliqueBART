@@ -30,8 +30,13 @@ tree_full_conditional = function(tree, R, sigma2, sigma2_mu) {
   # sumRsq_j = aggregate(R, by = list(tree$node_indices), function(x) sum(x^2))[,2]
   # S_j = aggregate(R, by = list(tree$node_indices), sum)[,2]
 
-  sumRsq_j = fsum(R^2, tree$node_indices)
-  S_j = fsum(R, tree$node_indices)
+  # sumRsq_j = fsum(R^2, tree$node_indices)
+
+  if(length(nj) ==1){
+    S_j = sum(R)
+  }else{
+    S_j = fsum(R, tree$node_indices)
+  }
 
   # print(" tree$node_indices = ")
   # print(tree$node_indices)
@@ -84,9 +89,13 @@ simulate_mu = function(tree, R, sigma2, sigma2_mu) {
 
   # Get sum of residuals in each terminal node
   # sumR = aggregate(R, by = list(tree$node_indices), sum)[,2]
-  sumR = fsum(R, tree$node_indices)
+  # sumR = fsum(R, tree$node_indices)
 
-
+  if(length(nj) ==1){
+    sumR = sum(R)
+  }else{
+    sumR = fsum(R, tree$node_indices)
+  }
   # print(" tree$node_indices = ")
   # print(tree$node_indices)
   #

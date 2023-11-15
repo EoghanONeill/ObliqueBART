@@ -28,7 +28,8 @@ fill_tree_details = function(curr_tree, X) {
   for(i in 2:nrow(tree_matrix)) {
 
     # Get the parent
-    curr_parent = tree_matrix[i,'parent']
+    # curr_parent = tree_matrix[i,'parent']
+    curr_parent = tree_matrix[i,4] # small speed up by accessing by number instead of name
 
 
 
