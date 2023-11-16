@@ -35,7 +35,9 @@ ObliqueBART(
   MH_propstep_xi = 0.15,
   norm_unit_sphere = FALSE,
   split_mix = FALSE,
-  num_clust = 1
+  num_clust = 1,
+  sq_ydiff_sigmu = TRUE,
+  centre_y = TRUE
 )
 }
 \arguments{

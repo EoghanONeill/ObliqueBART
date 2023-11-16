@@ -56,8 +56,9 @@ ObliqueBART <- function(x,
                         MH_propstep_xi = 0.15,
                         norm_unit_sphere = FALSE, # only relevant for normal distribution draws
                         split_mix = FALSE, # splitting coefficients drawn from mixture distribution (mixture of vairable inclusion probabiltiies and coef values)
-                        num_clust = 1 # number of clusters in the finite mixture for splitting coefficients
-                        ) {
+                        num_clust = 1, # number of clusters in the finite mixture for splitting coefficients
+                        sq_ydiff_sigmu = TRUE,
+                        centre_y = TRUE) {
 
 
 
@@ -150,9 +151,9 @@ ObliqueBART <- function(x,
     }
   }
 
-if( (coef_hyperprior == "univariate_normal_betabinomial_theta_j_sigma_j" ) & (coef_norm_hyperprior != "varying") ){
-  stop(" If coef_hyperprior = univariate_normal_betabinomial_theta_j_sigma_j, then must set coef_norm_hyperprior != varying " )
-}
+  if( (coef_hyperprior == "univariate_normal_betabinomial_theta_j_sigma_j" ) & (coef_norm_hyperprior != "varying") ){
+    stop(" If coef_hyperprior = univariate_normal_betabinomial_theta_j_sigma_j, then must set coef_norm_hyperprior != varying " )
+  }
 
 
   # Extract control parameters
@@ -180,9 +181,23 @@ if( (coef_hyperprior == "univariate_normal_betabinomial_theta_j_sigma_j" ) & (co
   s = rep(1/p, p)
 
 
+  if(centre_y){
+    y_max <- max(y_scale)
+    y_min <- min(y_scale)
+  }else{
+    y_max <- 0
+    y_min <- 0
+  }
+
+
+  y_scale <- y_scale - (y_max + y_min)/2
   # tau=(max(y.train)-min(y.train))/(2*k*sqrt(ntree))
 
-  sigma2_mu <- (max(y_scale)-min(y_scale))/((2 * k * sqrt(ntrees))^2)
+  if(sq_ydiff_sigmu){
+    sigma2_mu <- ((max(y_scale)-min(y_scale))/(2 * k * sqrt(ntrees)))^2
+  }else{
+    sigma2_mu <- (max(y_scale)-min(y_scale))/((2 * k * sqrt(ntrees))^2)
+  }
 
   # if(is.na(sigest)) {
     if(p < n) {
@@ -195,6 +210,9 @@ if( (coef_hyperprior == "univariate_normal_betabinomial_theta_j_sigma_j" ) & (co
   # }
   qchi = qchisq(1.0-sigquant,nu)
   lambda = (sigest*sigest*qchi)/nu #lambda parameter for sigma prior
+
+
+  sigma2 <- sigest^2
 
   ##### scale covariates ############
 
@@ -1222,7 +1240,7 @@ if( (coef_hyperprior == "univariate_normal_betabinomial_theta_j_sigma_j" ) & (co
   ###### return results #############
   return(list(trees = tree_store,
               sigma2 = sigma2_store*y_sd^2,
-              y_hat = y_hat_store*y_sd + y_mean,
+              y_hat = (y_hat_store+(y_max + y_min)/2)*y_sd + y_mean,
               npost = npost,
               nburn = nburn,
               nthin = nthin,
@@ -1232,7 +1250,9 @@ if( (coef_hyperprior == "univariate_normal_betabinomial_theta_j_sigma_j" ) & (co
               # var_count_store = var_count_store,
               s = s_prob_store,
               ecdfs = ecdfs,
-              hyp_par_list = hyp_par_list
+              hyp_par_list = hyp_par_list,
+              y_max = y_max,
+              y_min = y_min
               ))
 
 } # End main function
