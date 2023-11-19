@@ -37,7 +37,8 @@ ObliqueBART(
   split_mix = FALSE,
   num_clust = 1,
   sq_ydiff_sigmu = TRUE,
-  centre_y = TRUE
+  centre_y = TRUE,
+  covariate_scaling = "none"
 )
 }
 \arguments{

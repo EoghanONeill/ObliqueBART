@@ -6,6 +6,14 @@ make_01_norm <- function(x) {
   return(function(y0) (y0 - a) / (b - a))
 }
 
+make_normalized <- function(x) {
+  a <- mean(x)
+  b <- sd(x)
+  if(b == 0 | is.na(b)){
+    b <- 1
+  }
+  return(function(y0) (y0 - a) / (b))
+}
 
 #' @title Bayesian Additive Regression Trees with Oblique Splits
 #'
@@ -58,8 +66,13 @@ ObliqueBART <- function(x,
                         split_mix = FALSE, # splitting coefficients drawn from mixture distribution (mixture of vairable inclusion probabiltiies and coef values)
                         num_clust = 1, # number of clusters in the finite mixture for splitting coefficients
                         sq_ydiff_sigmu = TRUE,
-                        centre_y = TRUE) {
+                        centre_y = TRUE,
+                        covariate_scaling = "none") {
 
+
+  if(!(covariate_scaling %in% c("none", "ECDF", "normalize"))){
+    stop("covariate_scaling must be none, ECDF, or normalize")
+  }
 
 
   if(!(norm_sigma_init %in% c("Zellner",
@@ -220,7 +233,11 @@ ObliqueBART <- function(x,
 
   ecdfs   <- list()
   for(i in 1:ncol(x)) {
-    ecdfs[[i]] <- ecdf(x[,i])
+
+    if(covariate_scaling == "none") ecdfs[[i]] <- identity
+    if(covariate_scaling == "ECDF") ecdfs[[i]] <- ecdf(x[,i])
+    if(covariate_scaling == "normalize") ecdfs[[i]] <- make_normalized(x[,i])
+
     if(length(unique(x[,i])) == 1) ecdfs[[i]] <- identity
     if(length(unique(x[,i])) == 2) ecdfs[[i]] <- make_01_norm(x[,i])
   }
@@ -228,6 +245,8 @@ ObliqueBART <- function(x,
     x[,i] <- ecdfs[[i]](x[,i])
     # x.test[,i] <- ecdfs[[i]](x.test[,i])
   }
+
+  make_normalized
 
 
   ###### Initialization ################
@@ -1252,7 +1271,8 @@ ObliqueBART <- function(x,
               ecdfs = ecdfs,
               hyp_par_list = hyp_par_list,
               y_max = y_max,
-              y_min = y_min
+              y_min = y_min,
+              covariate_scaling = covariate_scaling
               ))
 
 } # End main function
