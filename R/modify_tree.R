@@ -121,6 +121,27 @@ grow_tree = function(X, y, curr_tree, node_min_size, s,
   # Find terminal node sizes
   terminal_node_size = as.numeric(new_tree$tree_matrix[terminal_nodes,'node_size'])
 
+  if (all(terminal_node_size < 2 * node_min_size)) {
+    # curr_tree$var = 0
+    curr_tree$var_update = 0
+    if(hyp_par_list$split_mix){
+      new_tree$node_updated <- NA
+      new_tree$c_ind_new <- NA
+    }
+
+    curr_tree$count_for_update <- rep(0, ncol(X))
+    if(coef_norm_hyperprior == "varying"){
+      new_tree$coef_for_sum_vec <- rep(0, ncol(X))
+    }
+    if(coef_hyperprior == "univariate_normal_betabinomial_theta_j_sigma_j"){
+      new_tree$coef_for_sumsq_vec <- rep(0, ncol(X))
+    }
+    if(coef_hyperprior == "simplex_fixed_Dir_binomial_plusminus_theta_j_xi_j"){
+      new_tree$coef_for_logsum_vec <- rep(0, ncol(X))
+    }
+    return(curr_tree)
+  }
+
   available_values = NULL
   max_bad_trees = 10
   count_bad_trees = 0
@@ -143,7 +164,7 @@ grow_tree = function(X, y, curr_tree, node_min_size, s,
 
     # Choose a random terminal node to split
     node_to_split = sample(terminal_nodes, 1,
-                           prob = as.integer(terminal_node_size > node_min_size)) # Choose which node to split, set prob to zero for any nodes that are too small
+                           prob = as.integer(terminal_node_size > 2*node_min_size)) # Choose which node to split, set prob to zero for any nodes that are too small
 
     # # Choose a split variable uniformly from all columns (the first one is the intercept)
     # split_variable = sample(1:ncol(X), 1, prob = s)
@@ -412,7 +433,12 @@ grow_tree = function(X, y, curr_tree, node_min_size, s,
       # print(X[new_tree$node_indices == node_to_split, ])
 
 
-      lincomb_values <- unique(as.vector(X[new_tree$node_indices == node_to_split, ] %*% split_coefs))
+      # lincomb_values <- unique(as.vector(X[new_tree$node_indices == node_to_split, ] %*% split_coefs))
+
+      countout <- collapse::fcount(as.vector(X[new_tree$node_indices == node_to_split, ] %*% split_coefs), sort = TRUE)
+      lincomb_values <- countout$x
+
+
     }
 
     if(threshold_prior == "discrete_uniform"){
@@ -439,23 +465,284 @@ grow_tree = function(X, y, curr_tree, node_min_size, s,
       # }
 
 
+      # if(length(lincomb_values) == 1){
+      #   split_value = lincomb_values[1]
+      # } else if (length(lincomb_values) == 2){
+      #   split_value = max(lincomb_values)
+      # }  else {
+      #   # split_value = sample(available_values[-c(1,length(available_values))], 1)
+      #   # split_value = resample(available_values[-c(1,length(available_values))])
+      #   # split_value = sample(x = available_values[2:(length(available_values)-1)],size = 1)
+      #   split_value = sample(x = lincomb_values[-c(which.min(lincomb_values), which.max(lincomb_values))],size = 1)
+      #
+      # }
       if(length(lincomb_values) == 1){
-        split_value = lincomb_values[1]
+        # no point in splitting if only one value
+        n_bad_trees = n_bad_trees + 1
+        if(n_bad_trees >= max_bad_trees) {
+          # print(" reached max_bad_trees = ")
+          # curr_tree$var = 0
+          curr_tree$var_update = 0
+          if(hyp_par_list$split_mix){
+            new_tree$node_updated <- NA
+            new_tree$c_ind_new <- NA
+          }
+
+          curr_tree$count_for_update <- rep(0, ncol(X))
+          if(coef_norm_hyperprior == "varying"){
+            new_tree$coef_for_sum_vec <- rep(0, ncol(X))
+          }
+          if(coef_hyperprior == "univariate_normal_betabinomial_theta_j_sigma_j"){
+            new_tree$coef_for_sumsq_vec <- rep(0, ncol(X))
+          }
+          if(coef_hyperprior == "simplex_fixed_Dir_binomial_plusminus_theta_j_xi_j"){
+            new_tree$coef_for_logsum_vec <- rep(0, ncol(X))
+          }
+          return(curr_tree)
+        }else{
+          next
+        }
+
+        # new_split_value = available_values[1]
       } else if (length(lincomb_values) == 2){
-        split_value = max(lincomb_values)
+
+        if(any(countout$N < node_min_size)){
+          n_bad_trees = n_bad_trees + 1
+          if(n_bad_trees >= max_bad_trees) {
+            # print(" reached max_bad_trees = ")
+
+            # curr_tree$var = 0
+            curr_tree$var_update = 0
+            if(hyp_par_list$split_mix){
+              new_tree$node_updated <- NA
+              new_tree$c_ind_new <- NA
+            }
+
+            curr_tree$count_for_update <- rep(0, ncol(X))
+            if(coef_norm_hyperprior == "varying"){
+              new_tree$coef_for_sum_vec <- rep(0, ncol(X))
+            }
+            if(coef_hyperprior == "univariate_normal_betabinomial_theta_j_sigma_j"){
+              new_tree$coef_for_sumsq_vec <- rep(0, ncol(X))
+            }
+            if(coef_hyperprior == "simplex_fixed_Dir_binomial_plusminus_theta_j_xi_j"){
+              new_tree$coef_for_logsum_vec <- rep(0, ncol(X))
+            }
+            return(curr_tree)
+          }else{
+            next
+          }
+        }
+
+        split_value = lincomb_values[2]
       }  else {
+
+        # find smallest and largest split values with less than minimum node size left and right
+        runsum <- 0
+        # min_ind <- 0
+        for(val_ind in 1:length(lincomb_values)){
+          runsum <- runsum + countout$N[val_ind]
+          if(runsum >= node_min_size){
+            min_ind <- val_ind +1
+            break
+          }
+        }
+        runsum <- 0
+        # max_ind <- 0
+        for(val_ind in length(lincomb_values):1){
+          runsum <- runsum + countout$N[val_ind]
+          if(runsum >= node_min_size){
+            max_ind <- val_ind
+            break
+          }
+        }
+
+        if((min_ind > length(lincomb_values)) | max_ind == 0  ){
+          n_bad_trees = n_bad_trees + 1
+          if(n_bad_trees >= max_bad_trees) {
+            # print(" reached max_bad_trees = ")
+
+            # curr_tree$var = 0
+            curr_tree$var_update = 0
+            if(hyp_par_list$split_mix){
+              new_tree$node_updated <- NA
+              new_tree$c_ind_new <- NA
+            }
+
+            curr_tree$count_for_update <- rep(0, ncol(X))
+            if(coef_norm_hyperprior == "varying"){
+              new_tree$coef_for_sum_vec <- rep(0, ncol(X))
+            }
+            if(coef_hyperprior == "univariate_normal_betabinomial_theta_j_sigma_j"){
+              new_tree$coef_for_sumsq_vec <- rep(0, ncol(X))
+            }
+            if(coef_hyperprior == "simplex_fixed_Dir_binomial_plusminus_theta_j_xi_j"){
+              new_tree$coef_for_logsum_vec <- rep(0, ncol(X))
+            }
+            return(curr_tree)
+          }else{
+            next
+          }
+        }
+
+        if(min_ind > max_ind){
+          stop("min_ind > max_ind")
+        }
+
+        if(min_ind == max_ind){
+          split_value <- lincomb_values[min_ind]
+        }else{
+          split_value <- sample(lincomb_values[min_ind:max_ind],1)
+          # new_split_value = runif(1,lincomb_values[min_ind],lincomb_values[max_ind])
+        }
         # split_value = sample(available_values[-c(1,length(available_values))], 1)
         # split_value = resample(available_values[-c(1,length(available_values))])
-        # split_value = sample(x = available_values[2:(length(available_values)-1)],size = 1)
-        split_value = sample(x = lincomb_values[-c(which.min(lincomb_values), which.max(lincomb_values))],size = 1)
-
+        # split_value = sample(available_values[-c(1)],1)
+        # split_value = resample(available_values[-c(1,length(available_values))])
+        # split_value = runif(1,available_values[2],available_values[length(available_values)])
       }
-    }
+
+
+    } # end discrete uniform prior
 
     if(threshold_prior == "continuous_min_max"){
-      tempmin <- min(lincomb_values)
-      tempmax <- max(lincomb_values)
-      split_value <- runif(n = 1, min = tempmin, max = tempmax)
+
+
+      # tempmin <- min(lincomb_values)
+      # tempmax <- max(lincomb_values)
+      # split_value <- runif(n = 1, min = tempmin, max = tempmax)
+      if(length(lincomb_values) == 1){
+        # no point in splitting if only one value
+        n_bad_trees = n_bad_trees + 1
+        if(n_bad_trees >= max_bad_trees) {
+          # print(" reached max_bad_trees = ")
+          # curr_tree$var = 0
+          curr_tree$var_update = 0
+          if(hyp_par_list$split_mix){
+            new_tree$node_updated <- NA
+            new_tree$c_ind_new <- NA
+          }
+
+          curr_tree$count_for_update <- rep(0, ncol(X))
+          if(coef_norm_hyperprior == "varying"){
+            new_tree$coef_for_sum_vec <- rep(0, ncol(X))
+          }
+          if(coef_hyperprior == "univariate_normal_betabinomial_theta_j_sigma_j"){
+            new_tree$coef_for_sumsq_vec <- rep(0, ncol(X))
+          }
+          if(coef_hyperprior == "simplex_fixed_Dir_binomial_plusminus_theta_j_xi_j"){
+            new_tree$coef_for_logsum_vec <- rep(0, ncol(X))
+          }
+          return(curr_tree)
+        }else{
+          next
+        }
+
+        # new_split_value = available_values[1]
+      } else if (length(lincomb_values) == 2){
+
+        if(any(countout$N < node_min_size)){
+          n_bad_trees = n_bad_trees + 1
+          if(n_bad_trees >= max_bad_trees) {
+            # print(" reached max_bad_trees = ")
+
+            # curr_tree$var = 0
+            curr_tree$var_update = 0
+            if(hyp_par_list$split_mix){
+              new_tree$node_updated <- NA
+              new_tree$c_ind_new <- NA
+            }
+
+            curr_tree$count_for_update <- rep(0, ncol(X))
+            if(coef_norm_hyperprior == "varying"){
+              new_tree$coef_for_sum_vec <- rep(0, ncol(X))
+            }
+            if(coef_hyperprior == "univariate_normal_betabinomial_theta_j_sigma_j"){
+              new_tree$coef_for_sumsq_vec <- rep(0, ncol(X))
+            }
+            if(coef_hyperprior == "simplex_fixed_Dir_binomial_plusminus_theta_j_xi_j"){
+              new_tree$coef_for_logsum_vec <- rep(0, ncol(X))
+            }
+            return(curr_tree)
+          }else{
+            next
+          }
+        }
+
+        # split_value = lincomb_values[2]
+        split_value = runif(1,lincomb_values[1],lincomb_values[2])
+
+
+      }  else {
+
+        # find smallest and largest split values with less than minimum node size left and right
+        runsum <- 0
+        # min_ind <- 0
+        for(val_ind in 1:length(lincomb_values)){
+          runsum <- runsum + countout$N[val_ind]
+          if(runsum >= node_min_size){
+            min_ind <- val_ind +1
+            break
+          }
+        }
+        runsum <- 0
+        # max_ind <- 0
+        for(val_ind in length(lincomb_values):1){
+          runsum <- runsum + countout$N[val_ind]
+          if(runsum >= node_min_size){
+            max_ind <- val_ind
+            break
+          }
+        }
+
+        if((min_ind > length(lincomb_values)) | max_ind == 0  ){
+          n_bad_trees = n_bad_trees + 1
+          if(n_bad_trees >= max_bad_trees) {
+            # print(" reached max_bad_trees = ")
+
+            # curr_tree$var = 0
+            curr_tree$var_update = 0
+            if(hyp_par_list$split_mix){
+              new_tree$node_updated <- NA
+              new_tree$c_ind_new <- NA
+            }
+
+            curr_tree$count_for_update <- rep(0, ncol(X))
+            if(coef_norm_hyperprior == "varying"){
+              new_tree$coef_for_sum_vec <- rep(0, ncol(X))
+            }
+            if(coef_hyperprior == "univariate_normal_betabinomial_theta_j_sigma_j"){
+              new_tree$coef_for_sumsq_vec <- rep(0, ncol(X))
+            }
+            if(coef_hyperprior == "simplex_fixed_Dir_binomial_plusminus_theta_j_xi_j"){
+              new_tree$coef_for_logsum_vec <- rep(0, ncol(X))
+            }
+            return(curr_tree)
+          }else{
+            next
+          }
+        }
+
+        if(min_ind > max_ind){
+          stop("min_ind > max_ind")
+        }
+
+        if(min_ind == max_ind){
+          split_value <- lincomb_values[min_ind]
+        }else{
+          # new_split_value <- sample(lincomb_values[min_ind:max_ind],1)
+          split_value = runif(1,lincomb_values[min_ind],lincomb_values[max_ind])
+        }
+        # split_value = sample(available_values[-c(1,length(available_values))], 1)
+        # split_value = resample(available_values[-c(1,length(available_values))])
+        # new_split_value = sample(available_values[-c(1)],1)
+        # split_value = resample(available_values[-c(1,length(available_values))])
+        # split_value = runif(1,available_values[2],available_values[length(available_values)])
+      }
+
+
+
+
     }
 
 
@@ -1062,7 +1349,10 @@ change_tree = function(X, y, curr_tree, node_min_size,
 
     if(threshold_prior != "continuous_minus_plus_1"){
       # calculate all linear combination values in the relevant node
-      lincomb_values <- unique(as.vector(X[ use_node_indices, ] %*% new_split_coefs))
+      # lincomb_values <- unique(as.vector(X[ use_node_indices, ] %*% new_split_coefs))
+
+      countout <- collapse::fcount(as.vector(X[ use_node_indices, ] %*% new_split_coefs), sort = TRUE)
+      lincomb_values <- countout$x
     }
 
     if(threshold_prior == "discrete_uniform"){
@@ -1074,23 +1364,284 @@ change_tree = function(X, y, curr_tree, node_min_size,
       #   stop("length(available_values) == 0")
       # }
 
-      if(length(lincomb_values) == 1){
-        new_split_value = lincomb_values[1]
-      } else if (length(lincomb_values) == 2){
-        new_split_value = max(lincomb_values) #available_values[2]
-      }  else {
-        # new_split_value = sample(available_values[-c(1,length(available_values))], 1)
-        # new_split_value = resample(available_values[-c(1,length(available_values))])
-        # new_split_value = sample(x = available_values[2:(length(available_values)-1)],size = 1)
-        new_split_value = sample(x = lincomb_values[-c(which.min(lincomb_values), which.max(lincomb_values))],size = 1)
+      # if(length(lincomb_values) == 1){
+      #   new_split_value = lincomb_values[1]
+      # } else if (length(lincomb_values) == 2){
+      #   new_split_value = max(lincomb_values) #available_values[2]
+      # }  else {
+      #   # new_split_value = sample(available_values[-c(1,length(available_values))], 1)
+      #   # new_split_value = resample(available_values[-c(1,length(available_values))])
+      #   # new_split_value = sample(x = available_values[2:(length(available_values)-1)],size = 1)
+      #   new_split_value = sample(x = lincomb_values[-c(which.min(lincomb_values), which.max(lincomb_values))],size = 1)
+      #
+      # }
 
+      if(length(lincomb_values) == 1){
+        # no point in splitting if only one value
+        count_bad_trees = count_bad_trees + 1
+        if(count_bad_trees >= max_bad_trees) {
+          # print(" reached max_bad_trees = ")
+          curr_tree$var_update = 0
+          curr_tree$count_for_update <- rep(0, ncol(X))
+
+          if(hyp_par_list$split_mix){
+            new_tree$node_updated <- NA
+            new_tree$c_ind_new <- NA
+          }
+
+
+          if(coef_norm_hyperprior == "varying"){
+            new_tree$coef_for_sum_vec <- rep(0, ncol(X))
+          }
+          if(coef_hyperprior == "univariate_normal_betabinomial_theta_j_sigma_j"){
+            new_tree$coef_for_sumsq_vec <- rep(0, ncol(X))
+          }
+          if(coef_hyperprior == "simplex_fixed_Dir_binomial_plusminus_theta_j_xi_j"){
+            new_tree$coef_for_logsum_vec <- rep(0, ncol(X))
+          }
+          return(curr_tree)
+        }else{
+          next
+        }
+
+        # new_split_value = available_values[1]
+      } else if (length(lincomb_values) == 2){
+
+        if(any(countout$N < node_min_size)){
+          n_bad_trees = n_bad_trees + 1
+          if(n_bad_trees >= max_bad_trees) {
+            # print(" reached max_bad_trees = ")
+            curr_tree$var_update = 0
+            curr_tree$count_for_update <- rep(0, ncol(X))
+
+            if(hyp_par_list$split_mix){
+              new_tree$node_updated <- NA
+              new_tree$c_ind_new <- NA
+            }
+
+
+            if(coef_norm_hyperprior == "varying"){
+              new_tree$coef_for_sum_vec <- rep(0, ncol(X))
+            }
+            if(coef_hyperprior == "univariate_normal_betabinomial_theta_j_sigma_j"){
+              new_tree$coef_for_sumsq_vec <- rep(0, ncol(X))
+            }
+            if(coef_hyperprior == "simplex_fixed_Dir_binomial_plusminus_theta_j_xi_j"){
+              new_tree$coef_for_logsum_vec <- rep(0, ncol(X))
+            }
+            return(curr_tree)
+          }else{
+            next
+          }
+        }
+
+        new_split_value = lincomb_values[2]
+      }  else {
+
+        # find smallest and largest split values with less than minimum node size left and right
+        runsum <- 0
+        # min_ind <- 0
+        for(val_ind in 1:length(lincomb_values)){
+          runsum <- runsum + countout$N[val_ind]
+          if(runsum >= node_min_size){
+            min_ind <- val_ind +1
+            break
+          }
+        }
+        runsum <- 0
+        # max_ind <- 0
+        for(val_ind in length(lincomb_values):1){
+          runsum <- runsum + countout$N[val_ind]
+          if(runsum >= node_min_size){
+            max_ind <- val_ind
+            break
+          }
+        }
+
+        if((min_ind > length(lincomb_values)) | max_ind == 0  ){
+          count_bad_trees = count_bad_trees + 1
+          if(count_bad_trees >= max_bad_trees) {
+            # print(" reached max_bad_trees = ")
+            curr_tree$var_update = 0
+            curr_tree$count_for_update <- rep(0, ncol(X))
+
+            if(hyp_par_list$split_mix){
+              new_tree$node_updated <- NA
+              new_tree$c_ind_new <- NA
+            }
+
+
+            if(coef_norm_hyperprior == "varying"){
+              new_tree$coef_for_sum_vec <- rep(0, ncol(X))
+            }
+            if(coef_hyperprior == "univariate_normal_betabinomial_theta_j_sigma_j"){
+              new_tree$coef_for_sumsq_vec <- rep(0, ncol(X))
+            }
+            if(coef_hyperprior == "simplex_fixed_Dir_binomial_plusminus_theta_j_xi_j"){
+              new_tree$coef_for_logsum_vec <- rep(0, ncol(X))
+            }
+            return(curr_tree)
+          }else{
+            next
+          }
+        }
+
+        if(min_ind > max_ind){
+          stop("min_ind > max_ind")
+        }
+
+        if(min_ind == max_ind){
+          new_split_value <- lincomb_values[min_ind]
+        }else{
+          new_split_value <- sample(lincomb_values[min_ind:max_ind],1)
+          # new_split_value = runif(1,lincomb_values[min_ind],lincomb_values[max_ind])
+        }
+        # split_value = sample(available_values[-c(1,length(available_values))], 1)
+        # split_value = resample(available_values[-c(1,length(available_values))])
+        # new_split_value = sample(available_values[-c(1)],1)
+        # split_value = resample(available_values[-c(1,length(available_values))])
+        # split_value = runif(1,available_values[2],available_values[length(available_values)])
       }
+
+
+
     }
 
     if(threshold_prior == "continuous_min_max"){
-      tempmin <- min(lincomb_values)
-      tempmax <- max(lincomb_values)
-      new_split_value <- runif(n = 1, min = tempmin, max = tempmax)
+      # tempmin <- min(lincomb_values)
+      # tempmax <- max(lincomb_values)
+      # new_split_value <- runif(n = 1, min = tempmin, max = tempmax)
+
+
+      if(length(lincomb_values) == 1){
+        # no point in splitting if only one value
+        count_bad_trees = count_bad_trees + 1
+        if(count_bad_trees >= max_bad_trees) {
+          # print(" reached max_bad_trees = ")
+          curr_tree$var_update = 0
+          curr_tree$count_for_update <- rep(0, ncol(X))
+
+          if(hyp_par_list$split_mix){
+            new_tree$node_updated <- NA
+            new_tree$c_ind_new <- NA
+          }
+
+
+          if(coef_norm_hyperprior == "varying"){
+            new_tree$coef_for_sum_vec <- rep(0, ncol(X))
+          }
+          if(coef_hyperprior == "univariate_normal_betabinomial_theta_j_sigma_j"){
+            new_tree$coef_for_sumsq_vec <- rep(0, ncol(X))
+          }
+          if(coef_hyperprior == "simplex_fixed_Dir_binomial_plusminus_theta_j_xi_j"){
+            new_tree$coef_for_logsum_vec <- rep(0, ncol(X))
+          }
+          return(curr_tree)
+        }else{
+          next
+        }
+
+        # new_split_value = available_values[1]
+      } else if (length(lincomb_values) == 2){
+
+        if(any(countout$N < node_min_size)){
+          n_bad_trees = n_bad_trees + 1
+          if(n_bad_trees >= max_bad_trees) {
+            # print(" reached max_bad_trees = ")
+            curr_tree$var_update = 0
+            curr_tree$count_for_update <- rep(0, ncol(X))
+
+            if(hyp_par_list$split_mix){
+              new_tree$node_updated <- NA
+              new_tree$c_ind_new <- NA
+            }
+
+
+            if(coef_norm_hyperprior == "varying"){
+              new_tree$coef_for_sum_vec <- rep(0, ncol(X))
+            }
+            if(coef_hyperprior == "univariate_normal_betabinomial_theta_j_sigma_j"){
+              new_tree$coef_for_sumsq_vec <- rep(0, ncol(X))
+            }
+            if(coef_hyperprior == "simplex_fixed_Dir_binomial_plusminus_theta_j_xi_j"){
+              new_tree$coef_for_logsum_vec <- rep(0, ncol(X))
+            }
+            return(curr_tree)
+          }else{
+            next
+          }
+        }
+
+        new_split_value = runif(1,lincomb_values[1],lincomb_values[2])
+        # new_split_value = lincomb_values[2]
+      }  else {
+
+        # find smallest and largest split values with less than minimum node size left and right
+        runsum <- 0
+        # min_ind <- 0
+        for(val_ind in 1:length(lincomb_values)){
+          runsum <- runsum + countout$N[val_ind]
+          if(runsum >= node_min_size){
+            min_ind <- val_ind +1
+            break
+          }
+        }
+        runsum <- 0
+        # max_ind <- 0
+        for(val_ind in length(lincomb_values):1){
+          runsum <- runsum + countout$N[val_ind]
+          if(runsum >= node_min_size){
+            max_ind <- val_ind
+            break
+          }
+        }
+
+        if((min_ind > length(lincomb_values)) | max_ind == 0  ){
+          count_bad_trees = count_bad_trees + 1
+          if(count_bad_trees >= max_bad_trees) {
+            # print(" reached max_bad_trees = ")
+            curr_tree$var_update = 0
+            curr_tree$count_for_update <- rep(0, ncol(X))
+
+            if(hyp_par_list$split_mix){
+              new_tree$node_updated <- NA
+              new_tree$c_ind_new <- NA
+            }
+
+
+            if(coef_norm_hyperprior == "varying"){
+              new_tree$coef_for_sum_vec <- rep(0, ncol(X))
+            }
+            if(coef_hyperprior == "univariate_normal_betabinomial_theta_j_sigma_j"){
+              new_tree$coef_for_sumsq_vec <- rep(0, ncol(X))
+            }
+            if(coef_hyperprior == "simplex_fixed_Dir_binomial_plusminus_theta_j_xi_j"){
+              new_tree$coef_for_logsum_vec <- rep(0, ncol(X))
+            }
+            return(curr_tree)
+          }else{
+            next
+          }
+        }
+
+        if(min_ind > max_ind){
+          stop("min_ind > max_ind")
+        }
+
+        if(min_ind == max_ind){
+          new_split_value <- lincomb_values[min_ind]
+        }else{
+          # new_split_value <- sample(lincomb_values[min_ind:max_ind],1)
+          new_split_value = runif(1,lincomb_values[min_ind],lincomb_values[max_ind])
+        }
+        # split_value = sample(available_values[-c(1,length(available_values))], 1)
+        # split_value = resample(available_values[-c(1,length(available_values))])
+        # new_split_value = sample(available_values[-c(1)],1)
+        # split_value = resample(available_values[-c(1,length(available_values))])
+        # split_value = runif(1,available_values[2],available_values[length(available_values)])
+      }
+
+
     }
 
 

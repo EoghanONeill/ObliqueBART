@@ -246,7 +246,7 @@ ObliqueBART <- function(x,
     # x.test[,i] <- ecdfs[[i]](x.test[,i])
   }
 
-  make_normalized
+  # make_normalized
 
 
   ###### Initialization ################
