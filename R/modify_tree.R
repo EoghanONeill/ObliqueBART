@@ -164,7 +164,7 @@ grow_tree = function(X, y, curr_tree, node_min_size, s,
 
     # Choose a random terminal node to split
     node_to_split = sample(terminal_nodes, 1,
-                           prob = as.integer(terminal_node_size > 2*node_min_size)) # Choose which node to split, set prob to zero for any nodes that are too small
+                           prob = as.integer(terminal_node_size >= 2*node_min_size)) # Choose which node to split, set prob to zero for any nodes that are too small
 
     # # Choose a split variable uniformly from all columns (the first one is the intercept)
     # split_variable = sample(1:ncol(X), 1, prob = s)
@@ -534,7 +534,13 @@ grow_tree = function(X, y, curr_tree, node_min_size, s,
           }
         }
 
-        split_value = lincomb_values[2]
+        # split_value = lincomb_values[2]
+        # if(splitting_rules == "continuous"){
+        #   split_value = runif(1,lincomb_values[1],lincomb_values[2])
+        # }else{
+          split_value = lincomb_values[2]
+        # }
+
       }  else {
 
         # find smallest and largest split values with less than minimum node size left and right
@@ -557,7 +563,8 @@ grow_tree = function(X, y, curr_tree, node_min_size, s,
           }
         }
 
-        if((min_ind > length(lincomb_values)) | max_ind == 0  ){
+        # if((min_ind > length(lincomb_values)) | max_ind == 0  ){
+        if((min_ind > length(lincomb_values)) | (min_ind > max_ind)  ){
           n_bad_trees = n_bad_trees + 1
           if(n_bad_trees >= max_bad_trees) {
             # print(" reached max_bad_trees = ")
@@ -590,9 +597,19 @@ grow_tree = function(X, y, curr_tree, node_min_size, s,
         }
 
         if(min_ind == max_ind){
-          split_value <- lincomb_values[min_ind]
+          # split_value <- lincomb_values[min_ind]
+          # if(splitting_rules == "continuous"){
+          #   split_value <- runif(1,lincomb_values[min_ind-1],lincomb_values[min_ind])
+          # }else{
+            split_value <- lincomb_values[min_ind]
+          # }
         }else{
-          split_value <- sample(lincomb_values[min_ind:max_ind],1)
+          # split_value <- sample(lincomb_values[min_ind:max_ind],1)
+          # if(splitting_rules == "continuous"){
+          #   split_value = runif(1,lincomb_values[min_ind-1],lincomb_values[max_ind])
+          # }else{
+            split_value <- sample(lincomb_values[min_ind:max_ind],1)
+          # }
           # new_split_value = runif(1,lincomb_values[min_ind],lincomb_values[max_ind])
         }
         # split_value = sample(available_values[-c(1,length(available_values))], 1)
@@ -695,7 +712,8 @@ grow_tree = function(X, y, curr_tree, node_min_size, s,
           }
         }
 
-        if((min_ind > length(lincomb_values)) | max_ind == 0  ){
+        # if((min_ind > length(lincomb_values)) | max_ind == 0  ){
+        if((min_ind > length(lincomb_values)) | (min_ind > max_ind)  ){
           n_bad_trees = n_bad_trees + 1
           if(n_bad_trees >= max_bad_trees) {
             # print(" reached max_bad_trees = ")
@@ -728,10 +746,12 @@ grow_tree = function(X, y, curr_tree, node_min_size, s,
         }
 
         if(min_ind == max_ind){
-          split_value <- lincomb_values[min_ind]
+          # split_value <- lincomb_values[min_ind]
+          split_value <- runif(1,lincomb_values[min_ind-1],lincomb_values[min_ind])
         }else{
           # new_split_value <- sample(lincomb_values[min_ind:max_ind],1)
-          split_value = runif(1,lincomb_values[min_ind],lincomb_values[max_ind])
+          # split_value = runif(1,lincomb_values[min_ind],lincomb_values[max_ind])
+          split_value = runif(1,lincomb_values[min_ind-1],lincomb_values[max_ind])
         }
         # split_value = sample(available_values[-c(1,length(available_values))], 1)
         # split_value = resample(available_values[-c(1,length(available_values))])
@@ -1458,7 +1478,8 @@ change_tree = function(X, y, curr_tree, node_min_size,
           }
         }
 
-        if((min_ind > length(lincomb_values)) | max_ind == 0  ){
+        # if((min_ind > length(lincomb_values)) | max_ind == 0  ){
+        if((min_ind > length(lincomb_values)) | (min_ind > max_ind)  ){
           count_bad_trees = count_bad_trees + 1
           if(count_bad_trees >= max_bad_trees) {
             # print(" reached max_bad_trees = ")
@@ -1496,6 +1517,7 @@ change_tree = function(X, y, curr_tree, node_min_size,
           new_split_value <- sample(lincomb_values[min_ind:max_ind],1)
           # new_split_value = runif(1,lincomb_values[min_ind],lincomb_values[max_ind])
         }
+
         # split_value = sample(available_values[-c(1,length(available_values))], 1)
         # split_value = resample(available_values[-c(1,length(available_values))])
         # new_split_value = sample(available_values[-c(1)],1)
@@ -1596,7 +1618,8 @@ change_tree = function(X, y, curr_tree, node_min_size,
           }
         }
 
-        if((min_ind > length(lincomb_values)) | max_ind == 0  ){
+        # if((min_ind > length(lincomb_values)) | max_ind == 0  ){
+        if((min_ind > length(lincomb_values)) | (min_ind > max_ind)  ){
           count_bad_trees = count_bad_trees + 1
           if(count_bad_trees >= max_bad_trees) {
             # print(" reached max_bad_trees = ")
@@ -1629,11 +1652,17 @@ change_tree = function(X, y, curr_tree, node_min_size,
         }
 
         if(min_ind == max_ind){
-          new_split_value <- lincomb_values[min_ind]
+          # new_split_value <- lincomb_values[min_ind]
+          new_split_value <- runif(1,lincomb_values[min_ind-1],lincomb_values[min_ind])
+
         }else{
           # new_split_value <- sample(lincomb_values[min_ind:max_ind],1)
-          new_split_value = runif(1,lincomb_values[min_ind],lincomb_values[max_ind])
+          # new_split_value = runif(1,lincomb_values[min_ind],lincomb_values[max_ind])
+          new_split_value = runif(1,lincomb_values[min_ind-1],lincomb_values[max_ind])
         }
+
+
+
         # split_value = sample(available_values[-c(1,length(available_values))], 1)
         # split_value = resample(available_values[-c(1,length(available_values))])
         # new_split_value = sample(available_values[-c(1)],1)
