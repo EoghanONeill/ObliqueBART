@@ -391,7 +391,8 @@ grow_tree = function(X, y, curr_tree, node_min_size, s,
 
 
     if(norm_unit_sphere){
-      split_coefs <- split_coefs/sum(split_coefs^2)
+      split_coefs <- split_coefs/sqrt(sum(split_coefs^2))
+      # split_coefs <- split_coefs/(sum(split_coefs^2))
     }
 
 
@@ -1360,7 +1361,8 @@ change_tree = function(X, y, curr_tree, node_min_size,
 
 
     if(norm_unit_sphere){
-      new_split_coefs <- new_split_coefs/sum(new_split_coefs^2)
+      new_split_coefs <- new_split_coefs/sqrt(sum(new_split_coefs^2))
+      # new_split_coefs <- new_split_coefs/(sum(new_split_coefs^2))
     }
 
     if(any(is.na(new_split_coefs))){

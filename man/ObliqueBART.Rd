@@ -36,7 +36,7 @@ ObliqueBART(
   norm_unit_sphere = FALSE,
   split_mix = FALSE,
   num_clust = 1,
-  sq_ydiff_sigmu = TRUE,
+  sq_ydiff_sigmu = FALSE,
   centre_y = TRUE,
   covariate_scaling = "none"
 )
