@@ -65,7 +65,7 @@ ObliqueBART <- function(x,
                         norm_unit_sphere = FALSE, # only relevant for normal distribution draws
                         split_mix = FALSE, # splitting coefficients drawn from mixture distribution (mixture of vairable inclusion probabiltiies and coef values)
                         num_clust = 1, # number of clusters in the finite mixture for splitting coefficients
-                        sq_ydiff_sigmu = FALSE,
+                        sq_ydiff_sigmu = TRUE,
                         centre_y = TRUE,
                         covariate_scaling = "none") {
 
